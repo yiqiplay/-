@@ -27,13 +27,13 @@
 
 **方式一：绿色版（推荐）**
 
-1. 双击 `LanControlServer.exe`
-2. 首次运行 Windows 会弹出防火墙提示 → 勾选「专用网络」并允许
+1. 右键以管理员权限运行 `LanControlServer.exe`
+2. 首次运行 Windows 可能会弹出防火墙提示 → 勾选「专用网络」并允许
 3. 控制面板会显示一个**二维码**和 **6 位配对码**
 
 **方式二：安装程序**
 
-运行 `LanControl-Setup-2.5.0.exe`（无需管理员权限）。
+运行 `LanControl-Setup-2.5.0.exe`（需管理员权限）。
 另有 `LanControl-Setup-2.5.0-admin.exe`，安装时需要管理员权限，但可以自动添加防火墙规则。
 
 ### 手机端
@@ -117,28 +117,6 @@ tools\build-all.ps1
 
 这些脚本默认从**工作区内的固定路径**找工具链（`tools\jdk17`、`tools\gradle-8.7`、
 `tools\android-sdk`）。如果你的环境不同，请修改脚本开头的路径变量。
-
-### 签名密钥库
-
-**仓库里故意不含 `lancontrol.keystore`** —— 签名密钥不应提交到公开仓库。
-构建 APK 前请自己生成一个，放在 `android-app/app/lancontrol.keystore`：
-
-```bash
-keytool -genkeypair -v \
-  -keystore android-app/app/lancontrol.keystore \
-  -storetype PKCS12 -alias lancontrol \
-  -keyalg RSA -keysize 2048 -validity 10950 \
-  -storepass <你的密码> -keypass <你的密码> \
-  -dname "CN=你的名字, OU=你的名字, O=你的名字, L=Local, ST=Local, C=CN"
-```
-
-然后修改 `android-app/app/build.gradle` 里的 `signingConfigs.release` 填上密码。
-（更安全的做法见 `android-app/keystore.properties.example`。）
-
-> ⚠️ **换密钥库会导致新旧 APK 签名不匹配，用户必须先卸载旧版才能安装新版。**
-> 正式发布的密钥库请务必备份 —— 丢了就再也无法发布可覆盖升级的新版本。
-
----
 
 ## 技术架构
 
