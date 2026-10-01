@@ -1,0 +1,331 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #1f2630;
+  --line: #2a323d;
+  --txt: #e6edf3;
+  --dim: #8b949e;
+  --accent: #4da3ff;
+  --danger: #ff5c5c;
+  --ok: #3fb950;
+  --toolbar-h: 58px;
+}
+html, body {
+  margin: 0; padding: 0; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--txt);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  overscroll-behavior: none;
+}
+#app, .screen { position: fixed; inset: 0; }
+.hidden { display: none !important; }
+
+/* ---------- 登录页 ---------- */
+#login {
+  overflow-y: auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px calc(16px + env(safe-area-inset-right)) 20px calc(16px + env(safe-area-inset-left));
+  background: radial-gradient(1200px 600px at 50% -10%, #16233a 0%, var(--bg) 60%);
+}
+.login-card { width: 100%; max-width: 420px; }
+.logo { text-align: center; margin-bottom: 8px; }
+.login-card h1 { font-size: 22px; text-align: center; margin: 6px 0 4px; font-weight: 600; }
+.login-card .sub { text-align: center; color: var(--dim); font-size: 13px; margin: 0 0 20px; }
+.field { display: block; margin-bottom: 12px; }
+.field > span { display: block; font-size: 12px; color: var(--dim); margin-bottom: 6px; }
+.field input {
+  width: 100%; padding: 13px 14px; font-size: 17px; color: var(--txt);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; outline: none;
+}
+.field input:focus { border-color: var(--accent); }
+#codeInput { letter-spacing: 6px; font-size: 22px; text-align: center; }
+.primary-btn {
+  width: 100%; padding: 15px; font-size: 17px; font-weight: 600; color: #06121f;
+  background: linear-gradient(180deg, #63b3ff, #3b8fe0); border: 0; border-radius: 10px; margin-top: 6px;
+}
+.primary-btn:active { transform: scale(.99); }
+.ghost-btn {
+  width: 100%; padding: 11px; font-size: 14px; color: var(--accent);
+  background: transparent; border: 1px dashed var(--line); border-radius: 10px; margin-bottom: 14px;
+}
+.msg { min-height: 20px; font-size: 13px; text-align: center; margin-top: 10px; color: var(--dim); }
+.msg.err { color: var(--danger); }
+.msg.ok { color: var(--ok); }
+.tips { margin-top: 18px; font-size: 13px; color: var(--dim); }
+.tips summary { cursor: pointer; padding: 8px 0; color: var(--accent); }
+.tips ul { padding-left: 20px; line-height: 1.7; }
+
+/* ---------- 控制页 ---------- */
+#control { display: flex; flex-direction: column; background: #000; }
+#topbar {
+  height: 42px; flex: 0 0 42px; display: flex; align-items: center; gap: 8px;
+  padding: 0 8px; background: var(--bg2); border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top);
+}
+.tb-info { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.15; }
+#hostName { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { font-size: 10px; color: var(--accent); }
+.stats { font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
+.icon-btn {
+  background: var(--bg3); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 8px; width: 34px; height: 30px; font-size: 15px; line-height: 1; flex: 0 0 auto;
+}
+.icon-btn.danger { color: var(--danger); }
+
+#stage { position: relative; flex: 1; overflow: hidden; touch-action: none; background: #000; }
+#screen { position: absolute; left: 0; top: 0; image-rendering: auto; will-change: transform; }
+#cursor {
+  position: absolute; width: 22px; height: 22px; margin: -2px 0 0 -2px; pointer-events: none;
+  background: no-repeat center/contain;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M4 2l14 8-6 1.5L9.5 18z' fill='white' stroke='black' stroke-width='1.2'/></svg>");
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.9)); transition: opacity .2s; z-index: 5;
+}
+
+/* ---------- 虚拟鼠标指针 ----------
+   关键：箭头尖端必须精确落在坐标点上。
+   SVG 里箭头尖端在 (3.4, 2.6)/24 的位置，图标按 22px 居中绘制在 46px 的
+   指示器盒子里（盒子中心对准坐标点），所以尖端相对盒子左上角是
+   (12+3.1, 12+2.4) ≈ (15, 14) —— 因此用 -15px/-14px 的负边距把盒子挪回去，
+   让尖端对齐坐标点，而不是让盒子中心（约偏右下 15px）对齐。
+   盒子里另外放一个同心的圆环/圆点作为"精确点"标记。 */
+#vcursor {
+  position: absolute; left: 0; top: 0; width: 46px; height: 46px; margin: -15px 0 0 -14px;
+  pointer-events: none; z-index: 7; transition: opacity .15s;
+  background: no-repeat center/22px 22px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M4 2l14 8-6 1.5L9.5 18z' fill='%234da3ff' stroke='white' stroke-width='1.4'/></svg>");
+  filter: drop-shadow(0 0 3px rgba(0,0,0,.95));
+}
+/* 精确点：与坐标点同心，用于肉眼确认指针对准了没有 */
+#vcursor .vc-dot {
+  position: absolute; left: 50%; top: 50%; width: 8px; height: 8px;
+  margin: -4px 0 0 -4px; border-radius: 50%;
+  background: rgba(77,163,255,.95); box-shadow: 0 0 0 2px rgba(255,255,255,.75);
+  opacity: 0; transition: opacity .12s;
+}
+#vcursor.press .vc-dot { opacity: 1; }
+#vcursor.dragging .vc-dot { opacity: 1; background: rgba(63,185,80,.95); }
+#vcursor .vc-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid rgba(77,163,255,.45); opacity: 0;
+  transition: opacity .12s, transform .12s;
+}
+#vcursor.press .vc-ring { opacity: 1; transform: scale(.82); }
+#vcursor.dragging .vc-ring {
+  opacity: 1; border-color: rgba(63,185,80,.95); transform: scale(1);
+  box-shadow: 0 0 12px rgba(63,185,80,.65);
+}
+#vcursor.dragging {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M4 2l14 8-6 1.5L9.5 18z' fill='%233fb950' stroke='white' stroke-width='1.4'/></svg>");
+}
+/* 真实光标指示器（直接点击模式）同样让箭头尖端对齐坐标点 */
+#cursor { margin: -3px 0 0 -3px; }
+body.vmouse #cursor { opacity: 0; }
+.tip-inline { font-size: 11.5px; color: var(--dim); line-height: 1.7; margin: 8px 0 4px; }
+
+/* ---------- 校准参考点 ---------- */
+.calib-layer { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+.calib-dot {
+  position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 50%; border: 2px solid #ffd166; background: rgba(255,209,102,.25);
+  box-shadow: 0 0 6px rgba(0,0,0,.8); pointer-events: auto; cursor: pointer;
+}
+.calib-dot::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px;
+  margin: -1.5px 0 0 -1.5px; border-radius: 50%; background: #fff;
+}
+.waiting {
+  position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px;
+  align-items: center; justify-content: center; color: var(--dim); font-size: 13px; background: #05070a;
+}
+.waiting .diag {
+  margin: 0; padding: 0 18px; font-size: 11px; line-height: 1.6; color: #6b7684;
+  text-align: center; word-break: break-all; max-width: 100%;
+}
+.spinner {
+  width: 32px; height: 32px; border: 3px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.hint {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+  background: rgba(0,0,0,.72); color: #fff; padding: 6px 12px; border-radius: 20px; font-size: 12px;
+  pointer-events: none; z-index: 6;
+}
+
+#toolbar {
+  flex: 0 0 auto; display: flex; background: var(--bg2); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+  /* 按钮变多后（鼠标/虚拟鼠标/滚动/按键/打字/文件/电源/更多/全屏/收起 = 10 个），
+     原来 flex:1 平分宽度会把每个挤到 ~36dp，中文标签放不下 → 按钮被挤没，
+     用户表现为"工具条不见了 / 唤不出来"。改为：每个按钮保底宽度 + 整条可横向滑动，
+     保证任何屏宽下所有按钮都在、都能点。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#toolbar::-webkit-scrollbar { display: none; }
+.tb {
+  flex: 1 0 auto; min-width: 56px; background: transparent; border: 0; color: var(--dim); font-size: 19px;
+  padding: 6px 2px 4px; display: flex; flex-direction: column; align-items: center; gap: 1px;
+}
+.tb span { font-size: 10px; white-space: nowrap; }
+.tb.active { color: var(--accent); }
+
+/* ---------- 面板 ---------- */
+.drawer {
+  position: absolute; top: 0; bottom: 0; left: 0; width: min(84vw, 340px); z-index: 20;
+  background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column;
+  animation: slideL .18s ease-out;
+}
+@keyframes slideL { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+.drawer-head, .panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  padding-top: calc(12px + env(safe-area-inset-top));
+}
+.drawer-body { overflow-y: auto; padding: 12px 14px 30px; }
+.drawer-body h4 { font-size: 12px; color: var(--dim); margin: 16px 0 8px; font-weight: 500; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 7px 12px; font-size: 13px; color: var(--txt); background: var(--bg3);
+  border: 1px solid var(--line); border-radius: 999px;
+}
+.chip.active { background: #17324f; border-color: var(--accent); color: var(--accent); }
+.wide-btn {
+  width: 100%; padding: 12px; margin-top: 8px; font-size: 14px; color: var(--txt);
+  background: var(--bg3); border: 1px solid var(--line); border-radius: 9px;
+}
+.wide-btn.ghost { background: transparent; }
+.wide-btn.danger { background: #3a1717; border-color: #6b2b2b; color: #ffb3b3; }
+.wide-btn:disabled { opacity: .5; }
+.meta { font-size: 11px; color: var(--dim); margin-top: 16px; line-height: 1.7; white-space: pre-line; }
+
+.panel {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 18; max-height: 72%;
+  background: var(--bg2); border-top: 1px solid var(--line); border-radius: 14px 14px 0 0;
+  display: flex; flex-direction: column; animation: slideUp .2s ease-out;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@keyframes slideUp { from { transform: translateY(30%); opacity: .4; } to { transform: translateY(0); opacity: 1; } }
+.panel > *:not(.panel-head) { margin-left: 14px; margin-right: 14px; }
+.panel .row { display: flex; gap: 8px; }
+.panel .row.right { justify-content: flex-end; }
+.panel textarea {
+  margin-top: 12px; width: calc(100% - 28px); padding: 10px; font-size: 16px; resize: none;
+  background: var(--bg3); color: var(--txt); border: 1px solid var(--line); border-radius: 9px; outline: none;
+}
+.check { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 6px; margin: 10px 0; }
+
+.key-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 14px; overflow-y: auto; }
+.key-grid button {
+  padding: 12px 4px; font-size: 13px; color: var(--txt); background: var(--bg3);
+  border: 1px solid var(--line); border-radius: 9px;
+}
+.key-grid button:active { background: #17324f; }
+
+.file-list { overflow-y: auto; flex: 1; margin-top: 6px; padding-bottom: 20px; }
+.file-row {
+  display: flex; align-items: center; gap: 10px; padding: 11px 4px; border-bottom: 1px solid #222933;
+}
+.file-row .fi { font-size: 18px; width: 22px; text-align: center; }
+.file-row .fn { flex: 1; min-width: 0; }
+.file-row .fn b { display: block; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-row .fn small { color: var(--dim); font-size: 11px; }
+.file-row .acts { display: flex; gap: 6px; }
+.file-row .acts button {
+  padding: 6px 9px; font-size: 12px; background: var(--bg3); color: var(--txt);
+  border: 1px solid var(--line); border-radius: 7px;
+}
+.breadcrumb {
+  font-size: 12px; color: var(--dim); padding: 10px 0; word-break: break-all; line-height: 1.6;
+}
+.breadcrumb a { color: var(--accent); text-decoration: none; }
+
+.power-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+.pbtn {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 12px 4px;
+  font-size: 19px; color: var(--txt); background: var(--bg3); border: 1px solid var(--line); border-radius: 10px;
+}
+.pbtn span { font-size: 11px; color: var(--dim); }
+.pbtn.warn { border-color: #6b5320; }
+.pbtn.danger { border-color: #6b2b2b; }
+.panel .tip { font-size: 11px; color: var(--dim); line-height: 1.6; margin: 10px 14px 14px; }
+
+.toast {
+  position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%); z-index: 40;
+  background: rgba(20,26,34,.95); color: #fff; border: 1px solid var(--line);
+  padding: 9px 16px; border-radius: 10px; font-size: 13px; max-width: 86vw; text-align: center;
+}
+.modal { position: absolute; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal-box { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 18px; width: 100%; max-width: 360px; }
+.modal-box p { margin: 0 0 14px; font-size: 15px; line-height: 1.6; }
+
+/* ---------- 沉浸（全屏）模式 ----------
+   设计原则（v2.1.0 起，按用户反馈修正）：
+   * 顶栏在沉浸模式下隐藏，腾出竖向空间；
+   * 底部工具条保持完整、固定贴底（不做成悬浮球）；
+   * **虚拟鼠标 与 断开连接 两个入口在任何模式下都不消失**：
+       - 顶栏里各有一个；
+       - 沉浸模式下顶栏没了，断开按钮以右上角悬浮钮常驻；
+       - 虚拟鼠标在底部工具条里始终有一个（沉浸与非沉浸都有）；
+   * 工具条可以"收起"（为了全屏看画面），收起后右下角出现圆钮可随时唤回。 */
+body.immersive #topbar { display: none !important; }
+/* 收起工具条：只要 body 有 barhidden 就隐藏 —— 不要求 .immersive。
+   ⚠️ 早期写成 `body.immersive.barhidden #toolbar`：非全屏时点「收起」虽然加上了
+   barhidden 类，却匹配不到这条规则（缺少 immersive），用户看到的就是"点了没反应"；
+   而全屏下两个类都在、反而正常 —— 症状极具误导性，别再改回去。 */
+body.barhidden #toolbar { display: none !important; }
+
+/* 断开连接：右上角悬浮钮。沉浸模式（含"真全屏"）下常驻，顶栏在时隐藏以免重复 */
+#floatingExit {
+  position: fixed; right: 10px; top: 10px; z-index: 60;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(96,28,28,.9); color: #ffdede; border: 1px solid #b34141;
+  font-size: 17px; padding: 0; box-shadow: 0 2px 10px rgba(0,0,0,.6);
+}
+#floatingExit:active { background: rgba(150,44,44,.98); }
+body.immersive #floatingExit { display: flex; }
+body:not(.immersive) #floatingExit { display: none; }
+/* 全屏但页面还没切到 immersive 时也要能看到退出入口 */
+body.fs #floatingExit { display: flex; }
+
+body.immersive #toolbar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 14;
+  background: rgba(22,27,34,.94); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+/* 唤出工具条的圆钮：只要工具条被收起就出现（沉浸/非沉浸都适用） */
+body.barhidden .float-bar { display: flex; }
+.float-bar {
+  display: none; position: fixed; right: 12px; bottom: 18px; z-index: 60;
+  width: 50px; height: 50px; border-radius: 50%; align-items: center; justify-content: center;
+  background: rgba(22,27,34,.92); color: var(--accent); border: 1px solid var(--line);
+  font-size: 22px; padding: 0; box-shadow: 0 3px 12px rgba(0,0,0,.6);
+}
+.float-bar:active { background: rgba(23,50,79,.98); }
+
+/* 「收起工具条」按钮：比普通按钮窄，靠右 */
+#toolbar .tb-mini { flex: 0 0 46px; opacity: .8; }
+/* 虚拟鼠标 / 声音 开关的激活态 */
+.icon-btn.on { background: var(--accent); color: #06121f; border-color: var(--accent); }
+#screen { background: #000; }
+
+/* ---------- 内联 SVG 图标 ----------
+   工具条/顶栏全部改用 SVG 而不是 emoji：emoji 字形在部分安卓机型上不存在，
+   会渲染成空白，用户就以为"图标消失了"。SVG 用 currentColor 跟着文字颜色走。 */
+.ti {
+  width: 22px; height: 22px; display: block; margin: 0 auto 2px;
+  fill: currentColor; color: inherit; pointer-events: none;
+}
+.icon-btn .ti { width: 20px; height: 20px; margin: 0; }
+#floatingExit .ti { width: 20px; height: 20px; margin: 0; }
+.float-bar .ti { width: 24px; height: 24px; margin: 0; }
+.pbtn .ti { width: 24px; height: 24px; margin: 0 auto 4px; }
+.tb .ti { color: var(--dim); }
+.tb.active .ti { color: var(--accent); }
+#toolbar .tb-mini .ti { width: 18px; height: 18px; }
+/* 全屏 / 收起 按钮加大触摸区域（手指更容易点中，避免'点了没反应'的观感） */
+#btnFsBar, #btnBarHide { min-width: 64px; }
+#btnFsBar .ti, #btnBarHide .ti { width: 24px; height: 24px; }
