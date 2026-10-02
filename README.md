@@ -1,2 +1,2 @@
 只是一个局域网手机控制电脑的软件
-如果有啥bug啥的可以发邮件到kaixinyike653@qq.com
+如果有啥bug或建议的可以发邮件到kaixinyike653@qq.com
