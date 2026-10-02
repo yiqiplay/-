@@ -1,0 +1,8 @@
+// 顶层构建脚本：仅声明插件版本，不引入外部依赖
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.buildDir
+}

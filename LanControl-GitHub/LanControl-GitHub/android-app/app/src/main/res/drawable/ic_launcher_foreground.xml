@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标：显示器 + 信号，108dp 画布，安全区 66dp -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 显示器外框 -->
+    <path
+        android:fillColor="#4da3ff"
+        android:pathData="M30,34 h48 a4,4 0 0 1 4,4 v28 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 v-28 a4,4 0 0 1 4,-4 z" />
+    <!-- 屏幕 -->
+    <path
+        android:fillColor="#0b1b2e"
+        android:pathData="M31,38 h46 v24 h-46 z" />
+    <!-- 底座 -->
+    <path
+        android:fillColor="#4da3ff"
+        android:pathData="M46,72 h16 l3,7 h-22 z" />
+    <!-- 屏幕中的光标/十字 -->
+    <path
+        android:fillColor="#4da3ff"
+        android:pathData="M50,44 h8 v4 h-8 z M52,42 h4 v14 h-4 z" />
+</vector>

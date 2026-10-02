@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>远程控制</title>
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 连接页 -->
+  <section id="login" class="screen">
+    <div class="login-card">
+      <div class="logo">
+        <svg viewBox="0 0 48 48" width="56" height="56" aria-hidden="true">
+          <rect x="4" y="8" width="40" height="26" rx="3" fill="none" stroke="#4da3ff" stroke-width="2.5"/>
+          <rect x="8" y="12" width="32" height="18" rx="1.5" fill="#123"/>
+          <path d="M16 38h16l2 4H14z" fill="#4da3ff"/>
+          <circle cx="24" cy="21" r="5.5" fill="none" stroke="#4da3ff" stroke-width="2.5"/>
+          <circle cx="24" cy="21" r="1.8" fill="#4da3ff"/>
+        </svg>
+      </div>
+      <h1>局域网远程控制</h1>
+      <p class="sub" id="loginSub">请输入电脑上显示的配对码</p>
+
+      <label class="field">
+        <span>电脑地址</span>
+        <input id="addrInput" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="192.168.1.100:8848">
+      </label>
+      <button id="discoverBtn" class="ghost-btn">自动搜索局域网内的电脑</button>
+
+      <label class="field">
+        <span>配对码</span>
+        <input id="codeInput" type="tel" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="6 位数字">
+      </label>
+
+      <button id="connectBtn" class="primary-btn">连 接</button>
+      <div id="loginMsg" class="msg"></div>
+
+      <details class="tips">
+        <summary>连接不上？点这里看提示</summary>
+        <ul>
+          <li>手机与电脑必须连同一个 Wi-Fi / 局域网。</li>
+          <li>电脑上运行「局域网远程控制 被控端」，双击托盘图标可查看地址与配对码。</li>
+          <li>如果 Windows 防火墙弹出提示，请勾选“专用网络”并允许访问。</li>
+          <li>公司/学校网络可能禁止设备互访，可改用手机热点让电脑连入。</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- 控制页 -->
+  <section id="control" class="screen hidden">
+    <header id="topbar">
+      <button id="btnMenu" class="icon-btn" title="菜单">☰</button>
+      <div class="tb-info">
+        <span id="hostName">未连接</span>
+        <span id="monLabel" class="pill">显示器 1</span>
+        <!-- 页面上直接显示被控端版本：用于确认手机连到的到底是哪一份程序。
+             之前多次出现"改了却没变化"，根因就是连到了旧的副本。 -->
+        <span id="pageVer" class="pill" title="被控端程序版本（用于确认连到的是哪一份程序）">v?</span>
+      </div>
+      <span id="statText" class="stats">--</span>
+      <button id="btnVmouseTop" class="icon-btn" title="虚拟鼠标 开/关">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M4 2l14 8-6 1.5L9.5 18z"/><circle cx="18" cy="18" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+      <button id="btnAudio" class="icon-btn" title="声音 开/关（听电脑的声音）">
+        <svg viewBox="0 0 24 24" class="ti ti-audio-off"><path d="M4 9h3l4-3v12l-4-3H4z"/><path d="M15 9l5 6M20 9l-5 6" stroke="currentColor" stroke-width="1.8" fill="none"/></svg></button>
+      <button id="btnFullscreen2" class="icon-btn" title="全屏 / 沉浸模式">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.8" fill="none"/></svg></button>
+      <button id="btnKeyboard" class="icon-btn" title="键盘">
+        <svg viewBox="0 0 24 24" class="ti"><rect x="2" y="6" width="20" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 10h1M10 10h1M14 10h1M18 10h.5M7 14h10" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></button>
+      <button id="btnPanic" class="icon-btn danger" title="断开">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M12 3v9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M7 6a7 7 0 108 0" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+    </header>
+
+    <div id="stage">
+      <canvas id="screen"></canvas>
+      <div id="cursor"></div>
+      <div id="vcursor" class="hidden"><span class="vc-ring"></span><span class="vc-dot"></span></div>
+      <div id="gestureHint" class="hint hidden"></div>
+      <div id="waiting" class="waiting">
+        <div class="spinner"></div>
+        <p id="waitingText">正在建立画面通道…</p>
+        <p id="waitingDiag" class="diag">等待第一帧…</p>
+      </div>
+    </div>
+
+    <!-- 悬浮控件放在 stage 外层：position:fixed 相对视口定位，
+         不会被 stage 的层叠/裁剪影响（之前放在 stage 里，部分机型上点不到）。
+         断开钮用文字 ✕ 而不是 SVG：个别 WebView 不渲染独立 SVG，会出现"空圆圈点不动"。 -->
+    <button id="floatingExit" title="断开连接">✕</button>
+    <!-- 注意：这里**不能**加 class="hidden"！
+         .hidden 是 display:none !important，会把 body.barhidden .float-bar{display:flex}
+         彻底压死 —— 结果就是工具条收起后唤回圆钮永远不出现，用户再也抬不起工具栏。
+         显隐完全交给 CSS 的默认 display:none / body.barhidden 时 display:flex 控制。 -->
+    <button id="floatBar" class="float-bar" title="显示工具条"><svg viewBox="0 0 24 24" class="ti"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+
+    <nav id="toolbar">
+      <!-- 图标全部用内联 SVG：emoji 在部分安卓机型/WebView 上没有对应字形，
+           会渲染成空白方块，用户就以为"图标消失了"（已踩过这个坑）。 -->
+      <button class="tb" data-act="mouse">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M4 2l14 8-6 1.5L9.5 18z"/></svg><span>鼠标</span></button>
+      <button class="tb" data-act="vmouse">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M4 2l14 8-6 1.5L9.5 18z"/><circle cx="18" cy="18" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>虚拟鼠标</span></button>
+      <button class="tb" data-act="scroll">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M12 3l4 4H8zM12 21l-4-4h8z"/></svg><span>滚动</span></button>
+      <button class="tb" data-act="keys">
+        <svg viewBox="0 0 24 24" class="ti"><rect x="2" y="6" width="20" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 10h1M10 10h1M14 10h1M18 10h.5M7 14h10" stroke="currentColor" stroke-width="1.6" fill="none"/></svg><span>按键</span></button>
+      <button class="tb" data-act="input">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M4 20l1-4L16 5l3 3L8 19z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>打字</span></button>
+      <button class="tb" data-act="files">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M3 6a1 1 0 011-1h5l2 2h9a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>文件</span></button>
+      <button class="tb" data-act="power">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M12 3v9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M7 6a7 7 0 108 0" stroke="currentColor" stroke-width="1.8" fill="none"/></svg><span>电源</span></button>
+      <button class="tb" data-act="more">
+        <svg viewBox="0 0 24 24" class="ti"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg><span>更多</span></button>
+      <!-- 全屏切换必须常驻工具条：顶栏在沉浸模式下会被隐藏，
+           如果全屏入口只在顶栏里，用户进了全屏就再也切不回来（已踩过这个坑）。 -->
+      <button class="tb" id="btnFsBar" title="全屏 / 退出全屏">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.8" fill="none"/></svg><span>全屏</span></button>
+      <!-- 收起工具条（想看完整画面时用）；收起后右下角会出现一个圆钮可随时唤回 -->
+      <button class="tb tb-mini" id="btnBarHide" title="收起工具条（全屏看画面）">
+        <svg viewBox="0 0 24 24" class="ti"><path d="M6 15l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>收起</span></button>
+    </nav>
+
+    <!-- 侧边抽屉 -->
+    <aside id="drawer" class="drawer hidden">
+      <div class="drawer-head">
+        <strong>控制菜单</strong>
+        <button id="drawerClose" class="icon-btn">✕</button>
+      </div>
+      <div class="drawer-body">
+        <h4>操作方式</h4>
+        <div class="chip-row">
+          <button class="chip active" data-mode="mouse">直接点击</button>
+          <button class="chip" data-mode="vmouse">虚拟鼠标</button>
+        </div>
+        <p class="tip-inline" id="modeTip">直接点击：手指点到哪，电脑光标就跳到哪；轻点=左键，长按=右键。</p>
+
+        <div id="vmouseOptions" class="hidden">
+          <h4>虚拟鼠标灵敏度</h4>
+          <div class="chip-row">
+            <button class="chip" data-sens="0.7">慢</button>
+            <button class="chip active" data-sens="1.3">标准</button>
+            <button class="chip" data-sens="2.2">快</button>
+            <button class="chip" data-sens="3.5">很快</button>
+          </div>
+          <p class="tip-inline">
+            触控板式操作：单指滑动移动指针（手指不遮挡光标）；<br>
+            轻点=左键单击，快速连点两次=双击，长按=按住拖动（再点一次放开），<br>
+            双指轻点=右键，双指上下滑动=滚轮，双指捏合=调清晰度。<br>
+            <b>箭头尖端</b>就是电脑指针的真实位置；按住或拖动时会显示一个同心圆点，<br>
+            方便确认有没有对准（觉得有偏差就点下面的「校准检查」）。
+          </p>
+          <button class="wide-btn" id="btnVmouseCenter">把光标移到屏幕中央</button>
+          <button class="wide-btn" id="btnVmouseCheck">校准检查（画面上显示 9 个参考点）</button>
+          <button class="wide-btn" id="btnVmouseDrag">按住/松开左键（拖动）</button>
+        </div>
+
+        <h4>声音格式（听感异常时可手动指定）</h4>
+        <div class="chip-row" id="audioFmtRow">
+          <button class="chip active" data-audiofmt="0">自动</button>
+          <button class="chip" data-audiofmt="16">16 位</button>
+          <button class="chip" data-audiofmt="24">24 位</button>
+        </div>
+        <h4>显示器</h4>
+        <div id="monitorList" class="chip-row"></div>
+        <h4>画面质量</h4>
+        <div class="chip-row">
+          <button class="chip" data-q="45">流畅</button>
+          <button class="chip active" data-q="62">均衡</button>
+          <button class="chip" data-q="80">清晰</button>
+        </div>
+        <h4>分辨率</h4>
+        <div class="chip-row">
+          <button class="chip" data-w="1024">小</button>
+          <button class="chip active" data-w="1280">中</button>
+          <button class="chip" data-w="1920">大</button>
+          <button class="chip" data-w="2560">原始</button>
+        </div>
+        <h4>帧率</h4>
+        <div class="chip-row">
+          <button class="chip" data-fps="8">省电 8</button>
+          <button class="chip active" data-fps="15">标准 15</button>
+          <button class="chip" data-fps="24">流畅 24</button>
+        </div>
+        <h4>操作</h4>
+        <button class="wide-btn" id="btnFullscreen">切换全屏</button>
+        <button class="wide-btn" id="btnClipboard">读取电脑剪贴板</button>
+        <button class="wide-btn" id="btnSendClipboard">把手机剪贴板发给电脑</button>
+        <button class="wide-btn" id="btnDisconnect">断开连接</button>
+        <div class="meta" id="sysInfo"></div>
+      </div>
+    </aside>
+
+    <!-- 键盘条 -->
+    <div id="keysPanel" class="panel hidden">
+      <div class="panel-head"><strong>常用按键</strong><button class="panel-close icon-btn">✕</button></div>
+      <div class="key-grid" id="keyGrid"></div>
+    </div>
+
+    <!-- 文本输入 -->
+    <div id="inputPanel" class="panel hidden">
+      <div class="panel-head"><strong>往电脑打字</strong><button class="panel-close icon-btn">✕</button></div>
+      <textarea id="textInput" rows="3" placeholder="在这里输入，可输入中文；点“发送”后电脑会收到内容"></textarea>
+      <div class="row">
+        <button class="wide-btn" id="btnSendText">发送到电脑</button>
+        <button class="wide-btn ghost" id="btnSendEnter">发送并回车</button>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="chkReplace"> 先全选（替换原有内容）</label>
+      </div>
+    </div>
+
+    <!-- 文件管理 -->
+    <div id="filesPanel" class="panel hidden">
+      <div class="panel-head"><strong>文件传输</strong><button class="panel-close icon-btn">✕</button></div>
+      <div id="breadcrumb" class="breadcrumb"></div>
+      <div class="row">
+        <button class="wide-btn ghost" id="btnMkdir">新建文件夹</button>
+        <button class="wide-btn ghost" id="btnUpload">上传到当前目录</button>
+        <input type="file" id="fileInput" multiple style="display:none">
+      </div>
+      <div id="uploadStatus" class="msg"></div>
+      <div id="fileList" class="file-list"></div>
+    </div>
+
+    <!-- 电源 -->
+    <div id="powerPanel" class="panel hidden">
+      <div class="panel-head"><strong>电源与系统</strong><button class="panel-close icon-btn">✕</button></div>
+      <div class="power-grid">
+        <button class="pbtn" data-power="lock"><svg viewBox="0 0 24 24" class="ti"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>锁定</span></button>
+        <button class="pbtn" data-power="sleep"><svg viewBox="0 0 24 24" class="ti"><path d="M20 14a8 8 0 11-10-10 7 7 0 0010 10z"/></svg><span>睡眠</span></button>
+        <button class="pbtn" data-power="hibernate"><svg viewBox="0 0 24 24" class="ti"><path d="M4 17v-6h16v6M6 11V7h12v4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>休眠</span></button>
+        <button class="pbtn" data-power="monitoroff"><svg viewBox="0 0 24 24" class="ti"><rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 20h6" stroke="currentColor" stroke-width="1.6"/></svg><span>关显示器</span></button>
+        <button class="pbtn" data-power="logoff"><svg viewBox="0 0 24 24" class="ti"><path d="M14 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 8l-4 4 4 4M6 12h8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>注销</span></button>
+        <button class="pbtn" data-power="taskmgr"><svg viewBox="0 0 24 24" class="ti"><path d="M4 19V5M4 19h16M8 15v-4M12 15V7M16 15v-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>任务管理器</span></button>
+        <button class="pbtn warn" data-power="restart"><svg viewBox="0 0 24 24" class="ti"><path d="M20 12a8 8 0 11-2.3-5.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>重启</span></button>
+        <button class="pbtn danger" data-power="shutdown"><svg viewBox="0 0 24 24" class="ti"><path d="M12 3v9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 6.8a8 8 0 1011 0" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>关机</span></button>
+      </div>
+      <div class="row">
+        <button class="wide-btn ghost" data-power="cancel">取消关机倒计时</button>
+      </div>
+      <p class="tip">关机/重启默认 30 秒后执行，期间可在电脑上执行 shutdown /a 或点上面的按钮取消。</p>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="confirm" class="modal hidden">
+      <div class="modal-box">
+        <p id="confirmText"></p>
+        <div class="row right">
+          <button id="confirmNo" class="wide-btn ghost">取消</button>
+          <button id="confirmYes" class="wide-btn danger">确定</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="/web/app.js"></script>
+</body>
+</html>

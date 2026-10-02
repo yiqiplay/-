@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.lancontrol.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.lancontrol.app"
+        minSdk 26
+        targetSdk 34
+        // 版本号与电脑端保持一致（电脑端 Program.Version = "2.5.1"）。
+        // versionCode 用 250，便于比较大小（2.5.1 -> 251）；升级时两边一起改，
+        // 免得出现"手机端和电脑端版本对不上"却难以判断的情况。
+        versionCode 251
+        versionName "2.5.1"
+        resConfigs "zh", "en"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('lancontrol.keystore')
+            storePassword 'lancontrol'
+            keyAlias 'lancontrol'
+            keyPassword 'lancontrol'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            applicationIdSuffix ".debug"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources.excludes += ['META-INF/*']
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+// 不依赖任何第三方库（纯 Android Framework 实现），便于离线/内网构建
+dependencies { }
