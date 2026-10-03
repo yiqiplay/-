@@ -34,7 +34,6 @@
 **方式二：安装程序**
 
 运行 `LanControl-Setup-2.5.2.exe`（需管理员权限）。
-另有 `LanControl-Setup-2.5.2-admin.exe`，安装时需要管理员权限，但可以自动添加防火墙规则。
 
 ### 手机端
 
