@@ -72,8 +72,10 @@ internal static class Power
                 return "已启动屏幕保护";
 
             case "taskmgr":
-                Run("taskmgr.exe", "");
-                return "已打开任务管理器";
+                // 注意：这里**不能**用 Run() —— 它强制 CreateNoWindow + WindowStyle.Hidden，
+                // 任务管理器会被启动成一个隐藏窗口，用户看着就是"点了没反应"（真实踩过）。
+                // 必须用 UseShellExecute=true + Normal 窗口，让它真的显示出来。
+                return LaunchVisible("taskmgr.exe", "");
 
             default:
                 return "未知的电源操作: " + action;
@@ -82,6 +84,41 @@ internal static class Power
 
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>
+    /// 启动一个**需要用户看见窗口**的程序（例如任务管理器）。
+    /// 与 Run() 的区别：不禁用窗口、不隐藏，并在 shell 失败时退回直接启动。
+    /// </summary>
+    private static string LaunchVisible(string exe, string args)
+    {
+        // ① 首选 shell 启动：与用户在"运行"里敲命令等价，能正确处理 UAC / 单实例
+        try
+        {
+            Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = true });
+            return "已打开" + Path.GetFileNameWithoutExtension(exe);
+        }
+        catch (Exception ex1)
+        {
+            Log.Warn($"shell 启动 {exe} 失败，改用直接启动: {ex1.Message}");
+            // ② 退回直接启动（仍然显示窗口）
+            try
+            {
+                string full = Path.Combine(Environment.SystemDirectory, exe);
+                if (!File.Exists(full)) full = exe;
+                Process.Start(new ProcessStartInfo(full, args)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = false,
+                });
+                return "已打开" + Path.GetFileNameWithoutExtension(exe);
+            }
+            catch (Exception ex2)
+            {
+                Log.Warn($"启动 {exe} 最终失败: {ex2.Message}");
+                return "打开失败：" + ex2.Message;
+            }
+        }
+    }
 
     private static void Run(string exe, string args)
     {

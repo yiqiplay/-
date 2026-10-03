@@ -10,11 +10,11 @@ android {
         applicationId "com.lancontrol.app"
         minSdk 26
         targetSdk 34
-        // 版本号与电脑端保持一致（电脑端 Program.Version = "2.5.0"）。
-        // versionCode 用 250，便于比较大小（2.5.0 -> 250）；升级时两边一起改，
+        // 版本号与电脑端保持一致（电脑端 Program.Version = "2.5.2"）。
+        // versionCode 用 250，便于比较大小（2.5.1 -> 251）；升级时两边一起改，
         // 免得出现"手机端和电脑端版本对不上"却难以判断的情况。
-        versionCode 250
-        versionName "2.5.0"
+        versionCode 252
+        versionName "2.5.2"
         resConfigs "zh", "en"
     }
 

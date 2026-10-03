@@ -9,15 +9,15 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>LanControlServer</AssemblyName>
     <RootNamespace>LanControl</RootNamespace>
-    <Version>2.5.0</Version>
+    <Version>2.5.2</Version>
     <Product>局域网远程控制 被控端</Product>
     <Company>xiaoke</Company>
     <!-- 版权与作者：显示在 exe 的「属性 → 详细信息」里 -->
     <Copyright>Copyright (C) 2026 xiaoke</Copyright>
     <Authors>xiaoke</Authors>
     <Description>局域网远程控制 被控端 - 用手机查看并控制这台电脑</Description>
-    <FileVersion>2.5.0.0</FileVersion>
-    <AssemblyVersion>2.5.0.0</AssemblyVersion>
+    <FileVersion>2.5.2.0</FileVersion>
+    <AssemblyVersion>2.5.2.0</AssemblyVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

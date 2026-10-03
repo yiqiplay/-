@@ -8,6 +8,9 @@
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
+  // 键盘打开时，单指拖动是「移动画面」还是「移动鼠标」。
+  // 默认移动鼠标 —— 不能默认移画面，那会让虚拟鼠标失效。
+  panMode: false,
   ws: null,
   authed: false,
   streaming: false,
@@ -281,7 +284,7 @@ function onAudioData(bytes) {
   if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) { } }
 
   // 位深：优先用帧头声明的值；缺失或非法时**按数据长度自动推断**（自愈）。
-  // 为什么必须自愈：服务端发 16 位而客户端按 24 位解析 ⇒ 播放压缩成 2/3（变快变调）；
+  // 为什么必须自愈：服务端发 16 位而客户端按 24 位解析 -> 播放压缩成 2/3（变快变调）；
   // 反过来则拉长成 1.5 倍（放慢变调）。这个坑已经踩过一次，所以不再盲信单一来源。
   let bits = audioState.bits || 0;
   if (bits !== 8 && bits !== 16 && bits !== 24 && bits !== 32) {
@@ -484,9 +487,9 @@ async function runDiscovery() {
 
   if (found.length === 0) {
     setLoginMsg(`扫描完 ${scanned} 个地址，没找到被控端。请确认：\n` +
-      `① 电脑上的被控端正在运行（控制面板窗口显示"正在运行"）；\n` +
-      `② 手机和电脑在同一个 Wi-Fi 下（不能一个连路由、一个连热点）；\n` +
-      `③ 电脑首次运行时在防火墙弹窗里点了"允许访问"。\n` +
+      `1) 电脑上的被控端正在运行（控制面板窗口显示"正在运行"）；\n` +
+      `2) 手机和电脑在同一个 Wi-Fi 下（不能一个连路由、一个连热点）；\n` +
+      `3) 电脑首次运行时在防火墙弹窗里点了"允许访问"。\n` +
       `也可以直接手动输入控制面板上显示的地址。`, true);
     return;
   }
@@ -566,7 +569,7 @@ function handleMessage(msg) {
       // 输入注入不可用时（例如程序跑在受限会话里）明确提示，避免用户以为"软件坏了"
       if (msg.inputInjectionOk === false) {
         state.inputBlocked = true;
-        toast('⚠ 电脑端无法注入鼠标键盘：手机上点了不会有反应。可在电脑上运行「诊断.cmd」查看原因。', 9000);
+        toast('[!] 电脑端无法注入鼠标键盘：手机上点了不会有反应。可在电脑上运行「诊断.cmd」查看原因。', 9000);
       }
       // 系统声音能力：不可用时把按钮置灰并说明原因
       state.audioOk = msg.audioOk !== false;
@@ -590,7 +593,7 @@ function handleMessage(msg) {
       }
       if (msg.on === false) {
         if (msg.error) {
-          toast('⚠ 无法接收电脑声音：' + msg.error, 9000);
+          toast('[!] 无法接收电脑声音：' + msg.error, 9000);
           audioState.enabled = false;
           updateAudioButton();
         }
@@ -750,15 +753,38 @@ function handleFrame(blob) {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(img, 0, 0, w, h);
-        // 适配舞台（保持比例居中），每帧重算，旋转屏幕后也能自适应
+        // 适配舞台（保持比例居中），每帧重算，旋转屏幕后也能自适应。
+        // 注意：不要为了"键盘打开时能拖画面"而自动放大画面 —— 那是强行改变用户
+        //    看到的画面尺寸（用户明确反馈"打开虚拟键盘后电脑画面被放大且无法缩放"）。
+        //    键盘打开时只做"平移"，缩放交给用户自己的双指手势。
         const sw = stage.clientWidth, sh = stage.clientHeight;
-        const scale = Math.min(sw / canvas.width, sh / canvas.height) || 1;
+        let scale = Math.min(sw / canvas.width, sh / canvas.height) || 1;
+        // 只有用户主动点了「放大画面」才放大。
+        // 原因：不放大时画面完整塞在舞台内，可拖动距离为 0，怎么拖都不动；
+        // 放大后画面超出舞台，拖动才有意义。默认**不**放大 —— 之前我做成
+        // "打开键盘就自动放大"，擅自改变了用户看到的画面尺寸（已被反馈）。
+        if (state.kbZoom && document.body.classList.contains('vkbd-open')) scale *= 2.4;
         const dw = Math.max(1, Math.round(canvas.width * scale));
         const dh = Math.max(1, Math.round(canvas.height * scale));
         canvas.style.width = dw + 'px';
         canvas.style.height = dh + 'px';
-        canvas.style.left = Math.round((sw - dw) / 2) + 'px';
-        canvas.style.top = Math.round((sh - dh) / 2) + 'px';
+        const maxPanX = (dw <= sw) ? 0 : (dw - sw);
+        if (!state.panX) state.panX = 0;
+        if (state.panX > maxPanX) state.panX = maxPanX;
+        if (state.panX < -maxPanX) state.panX = -maxPanX;
+        canvas.style.left = Math.round((sw - dw) / 2 - state.panX) + 'px';
+        // 记录舞台与画面的实际尺寸，供拖动手势计算可移动范围。
+        // 四个都必须赋值：之前 stageW/imgW 漏了（一次字符串替换没匹配上、静默失败），
+        // 导致 panMaxX() 恒返回 0 —— 表现就是"左右拖动完全没反应"。
+        state.stageW = sw;
+        state.imgW = dw;
+        state.stageH = sh;
+        state.imgH = dh;
+        const maxPan = (dh <= sh) ? 0 : (dh - sh);
+        if (!state.panY) state.panY = 0;
+        if (state.panY > maxPan) state.panY = maxPan;
+        if (state.panY < -maxPan) state.panY = -maxPan;
+        canvas.style.top = Math.round((sh - dh) / 2 - state.panY) + 'px';
       }
       decodedFrames++;
       window.decodedFrames = decodedFrames;
@@ -806,7 +832,7 @@ function handleFrame(blob) {
 function updateStreamStat(errorText) {
   const el = $('#statText');
   const parts = [];
-  if (errorText) parts.push('⚠ ' + errorText);
+  if (errorText) parts.push('[!] ' + errorText);
   if (state.lastStats) parts.push(state.lastStats);
   parts.push('已收 ' + decodedFrames + ' 帧');
   if (decodeErrors) parts.push('失败 ' + decodeErrors);
@@ -837,6 +863,38 @@ function normFromTouch(clientX, clientY) {
 }
 
 /* ---------------- 手势 ---------------- */
+/** 请求把当前这一帧按新的 panY 重新摆放（不重新拉流）。
+    只改 canvas 的 top，不等下一帧到达 —— 否则拖动时会一顿一顿。 */
+let _redrawPending = false;
+function scheduleRedraw() {
+  if (_redrawPending) return;
+  _redrawPending = true;
+  requestAnimationFrame(() => {
+    _redrawPending = false;
+    applyCanvasLayout();
+  });
+}
+
+/** 按 state.panY 重新摆放画布（尺寸沿用上一帧的结果）。 */
+function applyCanvasLayout() {
+  const canvas = $('#screen');
+  const stage = $('#stage');
+  if (!canvas || !stage) return;
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const dw = parseFloat(canvas.style.width) || canvas.width;
+  const dh = parseFloat(canvas.style.height) || canvas.height;
+  if (!dw || !dh) return;
+  const maxPan = (dh <= sh) ? 0 : (dh - sh);
+  if (state.panY > maxPan) state.panY = maxPan;
+  if (state.panY < -maxPan) state.panY = -maxPan;
+  const maxPanX = (dw <= sw) ? 0 : (dw - sw);
+  if (!state.panX) state.panX = 0;
+  if (state.panX > maxPanX) state.panX = maxPanX;
+  if (state.panX < -maxPanX) state.panX = -maxPanX;
+  canvas.style.left = Math.round((sw - dw) / 2 - state.panX) + 'px';
+  canvas.style.top = Math.round((sh - dh) / 2 - (state.panY || 0)) + 'px';
+}
+
 function setupGestures() {
   const stage = $('#stage');
   let mode = null;              // 'pointer' | 'scroll' | 'vmouse'
@@ -942,8 +1000,85 @@ function setupGestures() {
     }, 600);
   };
 
+  /* ---------- 键盘打开时：拖动画面，方便查看被键盘挡住的内容 ----------
+     键盘占了下半屏。这个手势不必反复开合键盘就能看到任意位置。 */
+  let panId = null, panStartX = 0, panStartY = 0, panStartPan = 0, panStartPanX = 0;
+  // 可拖动范围：
+  //   默认（画面完整适配舞台）—— 居中显示，上下/左右各只能移一半
+  //   放大后（画面超出舞台）—— 允许拖满**整个**溢出量，
+  //     这样画面底边能真正拖到屏幕上、顶边也能拖到屏幕顶；
+  //     否则"被挡住的部分"永远差一截看不到（用户反馈"没有完全拖到底部"）。
+  const panMaxY = () => {
+    const sh = state.stageH || 0, dh = state.imgH || 0;
+    if (dh <= sh) return 0;
+    return dh - sh;
+  };
+  const panMaxX = () => {
+    const sw = state.stageW || 0, dw = state.imgW || 0;
+    if (dw <= sw) return 0;
+    return dw - sw;
+  };
+  stage.addEventListener('touchstart', (ev) => {
+    if (!document.body.classList.contains('vkbd-open')) return;   // 只在键盘打开时接管
+    if (ev.touches.length !== 1) return;
+    const t0 = ev.target;
+    if (t0 && t0.closest && t0.closest('#drawer, .panel, #topbar, #toolbar')) return;
+
+    // 只有在「拖动画面」模式开启时才接管单指拖动。
+    //
+    // 为什么必须做成显式开关：
+    //   1) 之前一进这里就 stopImmediatePropagation()，导致**虚拟鼠标在键盘打开时
+    //      完全失效**（用户反馈"虚拟鼠标不能正常拖动"）；
+    //   2) 想改成"拖黑色留白=移画面、拖画面=移鼠标"，但放大后画面铺满整个舞台，
+    //      **根本没有留白可拖** —— 这个区分在实际使用中不成立。
+    // 所以交给用户显式切换：默认拖动=移动鼠标，点「拖动画面」后才拖动=移画面。
+    if (!state.panMode) return;
+
+    panId = ev.touches[0].identifier;
+    panStartX = ev.touches[0].clientX;
+    panStartY = ev.touches[0].clientY;
+    panStartPan = state.panY || 0;
+    panStartPanX = state.panX || 0;
+    // 截断，避免"移动鼠标"的手势处理器也收到这次触摸
+    ev.stopImmediatePropagation();
+  }, { capture: true });
+
+  stage.addEventListener('touchmove', (ev) => {
+    if (panId === null) return;
+    let t0 = null;
+    for (let i = 0; i < ev.touches.length; i++) {
+      if (ev.touches[i].identifier === panId) { t0 = ev.touches[i]; break; }
+    }
+    if (!t0) return;
+    const maxY = panMaxY(), maxX = panMaxX();
+    let nextY = panStartPan - (t0.clientY - panStartY);    // 手指上滑 -> 看下方
+    let nextX = panStartPanX - (t0.clientX - panStartX);
+    if (nextY > maxY) nextY = maxY;
+    if (nextY < -maxY) nextY = -maxY;
+    if (nextX > maxX) nextX = maxX;
+    if (nextX < -maxX) nextX = -maxX;
+    state.panY = nextY;
+    state.panX = nextX;
+    scheduleRedraw();
+    ev.preventDefault();     // 不再冒泡给"移动鼠标"的手势
+    ev.stopPropagation();
+  }, { capture: true, passive: false });
+
+  const panEnd = () => {
+    if (panId === null) return;
+    panId = null;
+    scheduleRedraw();
+  };
+  stage.addEventListener('touchend', panEnd, { capture: true });
+  stage.addEventListener('touchcancel', panEnd, { capture: true });
+
   stage.addEventListener('touchstart', (ev) => {
     if (!state.authed) return;
+    // 抽屉 / 面板 / 顶栏 / 工具条里的触摸一律不当作"操作画面"。
+    // 这些元素虽然不在 #stage 的 DOM 子树里，但事件会冒泡到 stage，
+    // 导致"在菜单里滑动时把滑动当成鼠标操作发给电脑"（用户反馈的误触之一）。
+    const t = ev.target;
+    if (t && t.closest && t.closest('#drawer, .panel, #topbar, #toolbar, #floatingExit, #floatBar')) return;
     // 注意：这里**不要**自动恢复工具栏。
     // 之前为了"防卡死"在这加了 isBarHidden() → setBarHidden(false)，
     // 结果变成"收起后碰一下屏幕就弹回来"，完全没法安心看全屏画面（用户反馈）。
@@ -1231,13 +1366,20 @@ function setVmouseEnabled(on) {
   const vc = $('#vcursor');
   if (vc) vc.classList.toggle('hidden', !state.vmouse.enabled);
 
-  // 工具栏高亮
+  // 工具条高亮 + 顶栏图标，两处必须一起刷新。
+  // 之前 setVmouseEnabled 只改工具条、点顶栏按钮时又只改顶栏，
+  // 于是"切换后总有一处图标不更新"（用户反馈"图标未更新"）。
   document.querySelectorAll('.tb').forEach((x) => {
     const act = x.dataset.act;
     if (act === 'vmouse') x.classList.toggle('active', state.vmouse.enabled);
     else if (act === 'mouse') x.classList.toggle('active', !state.vmouse.enabled && state.mode !== 'scroll');
     else if (act === 'scroll') x.classList.toggle('active', !state.vmouse.enabled && state.mode === 'scroll');
   });
+  const vmTopBtn = $('#btnVmouseTop');
+  if (vmTopBtn) {
+    vmTopBtn.classList.toggle('on', state.vmouse.enabled);
+    vmTopBtn.setAttribute('title', state.vmouse.enabled ? '虚拟鼠标：开' : '虚拟鼠标：关');
+  }
   // 抽屉里的选择状态
   document.querySelectorAll('.chip[data-mode]').forEach((c) =>
     c.classList.toggle('active', (c.dataset.mode === 'vmouse') === state.vmouse.enabled));
@@ -1296,6 +1438,348 @@ const KEYS = [
   ['音量+', ['volume_up']], ['音量-', ['volume_down']], ['静音', ['volume_mute']], ['播放/暂停', ['media_play']],
 ];
 
+/* ---------------- 虚拟键盘 ----------------
+   服务端键名见 InputInjector.KeyMap（backspace/enter/esc/space/left/up/... 以及符号名）。
+   修饰键是"粘滞"的：点 Ctrl 后它保持激活，再点 C 就发出 Ctrl+C 组合，然后自动松开。 */
+const VK_MODS = [];
+// 真实键盘没有独立的修饰键行，修饰键在最下一排（Ctrl Win Alt 空格 Alt Win 菜单 Ctrl）。
+// VK_MODS 保留为空数组：渲染逻辑仍会用到，为空就不再生成那一行 —— 之前自造了一行
+// Ctrl/Shift/Alt/Win，属于重复按键。
+// 左右两侧的 Alt/Win/Ctrl 在真实键盘上是同一个键，共用同一份粘滞状态。
+// shiftL/shiftR 也必须在这里归一 —— 之前别名表漏了它们，导致两个 Shift 键
+// 掉进普通键分支，发出的 'shiftL' 服务端不认，表现就是"Shift 键完全无效"。
+const VK_MOD_ALIAS = { alt2: 'alt', win2: 'win', ctrl2: 'ctrl', shiftL: 'shift', shiftR: 'shift' };
+
+/** 把键名归一到"修饰键名"；不是修饰键则返回空串。 */
+function vkModOf(name) {
+  const m = VK_MOD_ALIAS[name] || name;
+  return (m === 'shift' || m === 'ctrl' || m === 'alt' || m === 'win') ? m : '';
+}
+// 分两页：常用页只放打字最需要的键，功能页放 F 键 / 导航 / 媒体键。
+// 之前把 7 行全塞一起，屏幕根本放不下（用户反馈"键盘依旧占满画面"）。
+const VK_PAGES = [
+  // 布局对齐真实键盘：Tab 在数字行最左、退格在最右，主键区就是标准 4 行 + 空格行。
+  // 早期把 Tab/回车/Del/方向键挤在顶部一行，既不像真实键盘、又把主键区挤窄了。
+  { name: '常用', rows: [
+    // 布局完全对齐真实键盘（对照实物照片逐排核对）：
+    //   F1-F12 / ` 1..0 - = 退格 / Tab Q..P [ ] \ / Caps A..L ; ' 回车 /
+    //   Shift Z..M , . / Shift / Ctrl Win Alt 空格 Alt Win 菜单 Ctrl
+    // 修饰键放在**最下一排**，不再单独占一行
+    // —— 早期我自造了一行 Ctrl/Shift/Alt/Win，属于重复按键。
+    [['f1', 'F1', 'k15'], ['f2', 'F2', 'k15'], ['f3', 'F3', 'k15'], ['f4', 'F4', 'k15'], ['f5', 'F5', 'k15'],
+     ['f6', 'F6', 'k15'], ['f7', 'F7', 'k15'], ['f8', 'F8', 'k15'], ['f9', 'F9', 'k15'], ['f10', 'F10', 'k15'],
+     ['f11', 'F11', 'k15'], ['f12', 'F12', 'k15']],
+    [['backtick', '`', ''], ['1', '1', ''], ['2', '2', ''], ['3', '3', ''], ['4', '4', ''], ['5', '5', ''],
+     ['6', '6', ''], ['7', '7', ''], ['8', '8', ''], ['9', '9', ''], ['0', '0', ''],
+     ['minus', '-', ''], ['plus', '=', ''], ['backspace', '退格', 'k2']],
+    [['tab', 'Tab', 'k15'], ['q', 'q', ''], ['w', 'w', ''], ['e', 'e', ''], ['r', 'r', ''], ['t', 't', ''],
+     ['y', 'y', ''], ['u', 'u', ''], ['i', 'i', ''], ['o', 'o', ''], ['p', 'p', ''],
+     ['lbracket', '[', ''], ['rbracket', ']', ''], ['backslash', '\\', 'k15']],
+    [['capslock', 'Caps', 'k2'], ['a', 'a', ''], ['s', 's', ''], ['d', 'd', ''], ['f', 'f', ''], ['g', 'g', ''],
+     ['h', 'h', ''], ['j', 'j', ''], ['k', 'k', ''], ['l', 'l', ''], ['semicolon', ';', ''],
+     ['quote', "'", ''], ['enter', '回车', 'k25']],
+    [['shiftL', 'Shift', 'k25'], ['z', 'z', ''], ['x', 'x', ''], ['c', 'c', ''], ['v', 'v', ''],
+     ['b', 'b', ''], ['n', 'n', ''], ['m', 'm', ''], ['comma', ',', ''], ['period', '.', ''],
+     ['slash', '/', ''], ['shiftR', 'Shift', 'k25']],
+    [['ctrl', 'Ctrl', 'k15'], ['win', 'Win', 'k15'], ['alt', 'Alt', 'k15'],
+     ['space', '空格', 'space'],
+     ['alt2', 'Alt', 'k15'], ['win2', 'Win', 'k15'], ['apps', '菜单', 'k15'], ['ctrl2', 'Ctrl', 'k15']],
+  ] },
+  { name: '功能', rows: [
+    // Esc / Del / 方向键放在这里 —— 主键区已按真实键盘重排，这些键不属于主键区
+    [['esc', 'Esc', 'k15'], ['delete', 'Del', 'k15'], ['insert', 'Ins', 'k15'],
+     ['left', '左', 'k15'], ['up', '上', 'k15'], ['down', '下', 'k15'], ['right', '右', 'k15']],
+    [['f1', 'F1', 'k15'], ['f2', 'F2', 'k15'], ['f3', 'F3', 'k15'], ['f4', 'F4', 'k15'], ['f5', 'F5', 'k15'], ['f6', 'F6', 'k15']],
+    [['f7', 'F7', 'k15'], ['f8', 'F8', 'k15'], ['f9', 'F9', 'k15'], ['f10', 'F10', 'k15'], ['f11', 'F11', 'k15'], ['f12', 'F12', 'k15']],
+    [['printscreen', 'PrtSc', 'k2'], ['scrolllock', 'ScrLk', 'k2'], ['pause', 'Pause', 'k2'], ['apps', '菜单', 'k2']],
+    [['home', 'Home', 'k2'], ['end', 'End', 'k2'], ['pageup', 'PgUp', 'k2'], ['pagedown', 'PgDn', 'k2']],
+    [['volume_mute', '静音', 'k2'], ['volume_down', '音量-', 'k2'], ['volume_up', '音量+', 'k2'], ['apps', '菜单', 'k2']],
+    [['media_prev', '上一曲', 'k2'], ['media_play', '播放', 'k2'], ['media_next', '下一曲', 'k2'], ['media_stop', '停止', 'k2']],
+  ] },
+];
+// 需要按 Shift 才能打出的符号（键名 -> 未按 Shift 时显示的字符）
+const VK_SHIFTED = {
+  backtick: '~', '1': '!', '2': '@', '3': '#', '4': '$', '5': '%', '6': '^', '7': '&', '8': '*', '9': '(', '0': ')',
+  minus: '_', plus: '+', lbracket: '{', rbracket: '}', backslash: '|',
+  semicolon: ':', quote: '"', comma: '<', period: '>', slash: '?',
+};
+
+const vkState = { mods: new Set(), lastMod: '', lastModAt: 0, longPressTimer: null, page: 0, caps: false, repeatTimer: null };
+
+/** 长按字母/数字 = 连续输出（像真实键盘按住不放）。
+    首字立即发出，450ms 后开始连发，间隔 110ms 并逐渐加快。 */
+function vkBindRepeat(btn, name) {
+  const stop = () => { clearTimeout(vkState.repeatTimer); vkState.repeatTimer = null; };
+  const start = () => {
+    stop();
+    vkState.suppressClick = false;
+    let delay = 450, interval = 110;
+    const tick = () => {
+      if (vkScroll.active) { stop(); return; }   // 手指滑走了就停
+      vkTap(name);
+      interval = Math.max(45, interval - 8);     // 逐渐加快
+      vkState.repeatTimer = setTimeout(tick, interval);
+    };
+    vkState.repeatTimer = setTimeout(() => { vkState.suppressClick = true; tick(); }, delay);
+  };
+  btn.addEventListener('touchstart', start, { passive: true });
+  btn.addEventListener('touchend', stop);
+  btn.addEventListener('touchcancel', stop);
+  btn.addEventListener('mousedown', start);
+  btn.addEventListener('mouseup', stop);
+  btn.addEventListener('mouseleave', stop);
+}
+
+/** 长按某个键 = 单独发送它（无需先预备组合键）。
+    这是 Shift/Ctrl/Alt/Win 之外的"想单独按一下"的通用兜底。 */
+function vkBindPress(btn, name, label) {
+  const start = () => {
+    clearTimeout(vkState.longPressTimer);
+    vkState.longPressTimer = setTimeout(() => {
+      vkState.longPressTimer = null;
+      send({ type: 'key', action: 'tap', keys: [name] });
+      vibrate(14);
+      toast('已单独发送 ' + label, 1200);
+      vkState.suppressClick = true;
+    }, 550);
+  };
+  const cancel = () => { clearTimeout(vkState.longPressTimer); vkState.longPressTimer = null; };
+  btn.addEventListener('touchstart', start, { passive: true });
+  btn.addEventListener('touchend', cancel);
+  btn.addEventListener('touchcancel', cancel);
+  btn.addEventListener('mousedown', start);
+  btn.addEventListener('mouseup', cancel);
+  btn.addEventListener('mouseleave', cancel);
+}
+
+function vkShowKey(name, label) {
+  if (name === 'shiftL' || name === 'shiftR') return 'Shift';
+  // Caps 等效于"锁定的 Shift"：Caps 亮着时字母也该显示大写。
+  // 之前这里只判断 shift，所以点了 Caps 字母不变 —— 用户反馈"字母也没有大写"。
+  const upper = vkState.mods.has('shift') || vkState.caps;
+  if (!upper) return label;
+  if (VK_SHIFTED[name]) return VK_SHIFTED[name];
+  return /^[a-z]$/.test(label) ? label.toUpperCase() : label;
+}
+
+function renderVkbd() {
+  const mods = $('#vkbdMods');
+  const body = $('#vkbdBody');
+  if (!mods || !body) return;
+
+  const paintMods = () => {
+    mods.querySelectorAll('.vkbd-key').forEach((b) => {
+      b.classList.toggle('on', vkState.mods.has(b.dataset.mod));
+    });
+  };
+  const paintLabels = () => {
+    body.querySelectorAll('.vkbd-key').forEach((b) => {
+      const nm = b.dataset.key;
+      if (nm && b.dataset.label) b.textContent = vkShowKey(nm, b.dataset.label);
+    });
+  };
+
+  // 修饰键行（只渲染一次）
+  if (!mods.children.length) {
+    VK_MODS.forEach(([name, label]) => {
+      const b = document.createElement('button');
+      b.className = 'vkbd-key mod k15';
+      b.dataset.mod = name;
+      b.textContent = label;
+      b.onclick = () => vkModTap(name, label, paintMods, paintLabels);
+      mods.appendChild(b);
+    });
+  }
+
+  // 分页标签 + 当前页键区
+  body.innerHTML = '';
+  const tabs = document.createElement('div');
+  tabs.className = 'vkbd-tabs';
+  VK_PAGES.forEach((p, idx) => {
+    const tb = document.createElement('button');
+    tb.className = 'vkbd-tab' + (idx === vkState.page ? ' on' : '');
+    tb.textContent = p.name;
+    tb.onclick = () => { vkState.page = idx; renderVkbd(); };
+    tabs.appendChild(tb);
+  });
+  body.appendChild(tabs);
+
+  const page = VK_PAGES[vkState.page] || VK_PAGES[0];
+  body.classList.toggle('vkbd-page-fn', page.name === '功能');   // 功能页行高更矮（CSS 用）
+  page.rows.forEach((row) => {
+    const r = document.createElement('div');
+    r.className = 'vkbd-row';
+    row.forEach(([name, label, w]) => {
+      const b = document.createElement('button');
+      b.className = 'vkbd-key ' + (w || '');
+      b.dataset.key = name;
+      b.style.flexGrow = vkWeight(w, label);   // 撑满整行，不用固定像素宽度
+      // 真实键盘的修饰键（底排的 Ctrl/Win/Alt 与左右 Shift）都走粘滞逻辑
+      const modName = vkModOf(name);
+      if (modName) {
+        b.dataset.mod = modName;
+        b.textContent = label;
+        b.onclick = () => vkModTap(name, label, paintMods, paintLabels);
+      } else {
+        b.dataset.label = label;
+        b.textContent = label;
+        if (name === 'capslock') b.classList.toggle('on', vkState.caps);   // Caps 开着时高亮
+        b.onclick = () => {
+          if (vkState.suppressClick) { vkState.suppressClick = false; return; }
+          vkTap(name);
+        };
+        // 字母 / 数字 / 退格 / Del：长按连续输出（退格连续删字符是刚需）
+        if (/^[a-z0-9]$/.test(name) || name === 'backspace' || name === 'delete') vkBindRepeat(b, name);
+        else vkBindPress(b, name, label);
+      }
+      r.appendChild(b);
+    });
+    body.appendChild(r);
+  });
+  paintMods();
+  vkPaintState();   // 底排的 Ctrl/Win/Alt 与 Caps 也要高亮（它们不走 VK_MODS 那一行）
+  vkPaintArmed();
+}
+
+/** 把"当前预备了哪些修饰键"显示在面板标题旁。
+    存在的意义：高亮只靠颜色，一旦颜色没生效就完全无从判断；
+    显示文字状态后，"点 Ctrl 到底有没有被记住"一眼可见，不用再猜。 */
+function vkPaintArmed() {
+  const el = document.getElementById('vkbdArmed');
+  if (!el) return;
+  const list = [...vkState.mods];
+  if (!list.length && !vkState.caps) { el.textContent = ''; return; }
+  const names = { ctrl: 'Ctrl', shift: 'Shift', alt: 'Alt', win: 'Win' };
+  const parts = list.map((m) => names[m] || m);
+  if (vkState.caps) parts.push('Caps');
+  el.textContent = '已预备 ' + parts.join(' + ');
+}
+
+/** 刷新修饰键 / Caps 的高亮。
+    底排的 Ctrl/Win/Alt 是普通按钮（不再走 VK_MODS 那一行），
+    所以必须按 data-key 统一判断 —— 否则"点了 Ctrl 图标不变色"（用户反馈）。 */
+function vkPaintState() {
+  document.querySelectorAll('#vkbdBody .vkbd-key').forEach((b) => {
+    const k = b.dataset.key;
+    if (!k) return;
+    const mod = vkModOf(k);
+    let lit = false;
+    if (mod) lit = vkState.mods.has(mod);
+    else if (k === 'capslock') lit = vkState.caps;
+
+    // 同时设 class 和**内联样式**（内联优先级最高）。
+    // 只用 class 时，一旦有任何样式优先级/缓存问题，用户看到的就是"点了不高亮"，
+    // 而从代码上完全看不出毛病 —— 这个坑已经反复出现好几轮了。
+    b.classList.toggle('on', lit);
+    if (lit) {
+      b.style.background = '#4da3ff';
+      b.style.color = '#06121f';
+      b.style.borderColor = '#4da3ff';
+      b.style.fontWeight = '700';
+    } else {
+      b.style.background = '';
+      b.style.color = '';
+      b.style.borderColor = '';
+      b.style.fontWeight = '';
+    }
+  });
+}
+
+/** 修饰键：单击预备组合，双击单独发送该键。 */
+function vkModTap(name, label, paintMods, paintLabels) {
+  name = vkModOf(name) || name;   // shiftL/shiftR、右侧 Alt/Win/Ctrl 都归一到同一个状态
+  const now = Date.now();
+  const isDouble = vkState.lastMod === name && (now - (vkState.lastModAt || 0)) < 420;
+  vkState.lastMod = name;
+  vkState.lastModAt = now;
+  if (isDouble) {
+    vkState.mods.delete(name);
+    vkState.lastMod = '';
+    send({ type: 'key', action: 'tap', keys: [name] });
+    vibrate(12);
+    toast('已单独发送 ' + label, 1200);
+  } else if (vkState.mods.has(name)) {
+    vkState.mods.delete(name);
+  } else {
+    vkState.mods.add(name);
+  }
+  if (paintMods) paintMods();
+  if (paintLabels) paintLabels();
+  // 关键：必须在这里刷新"底排修饰键高亮"和"已预备"文字。
+  // 之前只调了 paintMods（它只扫 #vkbdMods，而我们的修饰键在底排 #vkbdBody 里）
+  // 和 paintLabels，导致 vkState.mods 明明写进去了、界面上却毫无变化
+  // —— 这正是"连携键没有高亮"的真正原因，已用 tools/test-vkbd-logic.mjs 实测确认。
+  vkPaintState();
+  vkPaintArmed();
+  if (!isDouble) vibrate(10);
+}
+/** 按键的 flex 份数：按键宽类和标签长度估算，保证整行撑满、又不会把窄键压没。
+    之前用固定像素宽度，屏幕一宽两边就各留一大块空白（用户反馈"两边很空"）。 */
+function vkWeight(w, label) {
+  // 按真实键盘的键宽比例（相对字母键 = 1 份）：
+  //   Caps ≈ 1.4、Shift ≈ 1.8、Enter ≈ 1.9、退格 ≈ 1.9、Tab ≈ 1.5、空格 ≈ 6
+  // 之前 Caps/Shift 给到 2.0/2.5 太宽，把字母键挤窄了
+  // —— 用户反馈"大写键和 shift 键改短一些，以适配现实键盘的键位"。
+  const base = w === 'k3' ? 3
+    : w === 'k25' ? 1.8
+      : w === 'k2' ? 1.9
+        : w === 'k15' ? 1.5
+          : w === 'space' ? 6
+            : 1;
+  // 长标签（如"退格""回车"）额外给一点，避免文字被挤出
+  const extra = (label && label.length > 2) ? 0.3 : 0;
+  return (base + extra).toFixed(2);
+}
+
+/** 点一个普通键：若粘滞着修饰键则发组合键，否则单键。 */
+/** 滑动过程中不要触发按键 —— 手指在键盘上滑动（想滚动看更多键）时若按下某个键就会误发。
+    用户反馈"滑动界面时容易触发按键功能"。 */
+const vkScroll = { active: false, x: 0, y: 0 };
+
+function vkScrollGuardInit() {
+  const opts = { passive: true, capture: true };
+  const start = (ev) => {
+    const t = ev.touches ? ev.touches[0] : ev;
+    vkScroll.x = t.clientX; vkScroll.y = t.clientY; vkScroll.active = false;
+  };
+  const move = (ev) => {
+    const t = ev.touches ? ev.touches[0] : ev;
+    // 超过 8px 判定为"滑动"，不是"点击"（点按时自然抖动一般 <5px）
+    if (Math.abs(t.clientX - vkScroll.x) > 8 || Math.abs(t.clientY - vkScroll.y) > 8) {
+      vkScroll.active = true;
+    }
+  };
+  const end = () => { setTimeout(() => { vkScroll.active = false; }, 60); };
+  document.addEventListener('touchstart', start, opts);
+  document.addEventListener('touchmove', move, opts);
+  document.addEventListener('touchend', end, opts);
+  document.addEventListener('touchcancel', end, opts);
+}
+
+function vkTap(name) {
+  if (vkScroll.active) return;   // 正在滑动，忽略这次"点击"
+  // Caps：本地记录开关状态（用于按钮高亮 + 字母显示大写），同时把按键发给电脑。
+  // 之前完全没记录状态，用户看到的就是"Caps 点了没反应、字母也不变大写"。
+  if (name === 'capslock') {
+    vkState.caps = !vkState.caps;
+    send({ type: 'key', action: 'tap', keys: ['capslock'] });
+    vibrate(12);
+    renderVkbd();
+    toast(vkState.caps ? '大写锁定：开' : '大写锁定：关', 1200);
+    return;
+  }
+  const mods = [...vkState.mods].filter((m) => m !== 'capslock');
+  const combo = mods.concat([name]);
+  send({ type: 'key', action: 'tap', keys: combo });
+  vibrate(12);
+  if (mods.length) {
+    // 组合键发完自动松开修饰键（否则下一次点击又会带上，很容易误操作）
+    vkState.mods.clear();
+    renderVkbd();      // 重新渲染会同时刷新修饰键与 Caps 的高亮
+    toast('已发送 ' + combo.map((k) => k[0].toUpperCase() + k.slice(1)).join(' + '), 1200);
+  }
+}
+
 function renderKeys() {
   const grid = $('#keyGrid');
   grid.innerHTML = '';
@@ -1310,14 +1794,85 @@ function renderKeys() {
 function vibrate(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { } }
 
 /* ---------------- 文件管理 ---------------- */
+// 属于"打开某个面板"的按钮 —— openPanel 只负责这些按钮的高亮。
+// 其余按钮（全屏 / 虚拟鼠标 / 鼠标 / 滚动）是**模式**状态，由各自的逻辑维护，
+// 不能被 openPanel 顺手清掉。
+const PANEL_ACTS = ['keys', 'vkbd', 'input', 'files', 'power'];
+
 function openPanel(id) {
+  // 键盘打开时隐藏下方工具栏：面板是绝对定位，不这样处理会和工具栏叠在一起
+  //（用户看到的就是"上方栏目未与下方工具栏同步"）。
+  const wasOpen = document.body.classList.contains('vkbd-open');
+  document.body.classList.toggle('vkbd-open', id === 'vkbdPanel');
+  // 键盘收起时**不复位画面位置**：用户拖到哪里就停在哪里。
+  // （之前这里把 pan 归零，用户反馈"取消拖动后又回到屏幕中央"。）
+  // 只有舞台尺寸变化（旋转屏幕等）时才由 applyCanvasLayout 自动钳制回可见范围。
+  void wasOpen;
   document.querySelectorAll('.panel').forEach((p) => p.classList.add('hidden'));
   $('#drawer').classList.add('hidden');
   if (id) $('#' + id).classList.remove('hidden');
-  document.querySelectorAll('.tb').forEach((b) => b.classList.toggle('active', b.dataset.act === panelAct(id)));
+  // 只更新"面板类"按钮的高亮；不要无条件重写所有 .tb 的 active ——
+  // 那样会把全屏 / 虚拟鼠标 / 鼠标 / 滚动 这些**模式类**按钮的高亮一起抹掉
+  //（用户反馈"全屏模式下图标不会更新"就是这个原因）。
+  document.querySelectorAll('.tb').forEach((b) => {
+    if (!PANEL_ACTS.includes(b.dataset.act)) return;
+    b.classList.toggle('active', b.dataset.act === panelAct(id));
+  });
 }
+/** 面板拖动调高：把手在面板顶部，向上拖变高、向下拖变矮。
+    结果写进 localStorage —— 不同机型屏幕差别大，让用户自己定，比写死比例靠谱。 */
+function setupPanelGrips() {
+  document.querySelectorAll('.panel-grip').forEach((grip) => {
+    const panel = grip.parentElement;
+    if (!panel) return;
+    let startY = 0, startH = 0, dragging = false;
+
+    // 恢复上次拖出来的高度
+    try {
+      const saved = localStorage.getItem('panelH:' + panel.id);
+      if (saved) {
+        const h = parseInt(saved, 10);
+        if (h > 80) { panel.style.height = h + 'px'; panel.classList.add('manual'); }
+      }
+    } catch (e) { }
+
+    const down = (ev) => {
+      const t0 = ev.touches ? ev.touches[0] : ev;
+      dragging = true;
+      startY = t0.clientY;
+      startH = panel.getBoundingClientRect().height;
+      panel.classList.add('manual');
+      ev.preventDefault();
+    };
+    const move = (ev) => {
+      if (!dragging) return;
+      const t0 = ev.touches ? ev.touches[0] : ev;
+      const dy = startY - t0.clientY;          // 向上拖 = 变高
+      let h = startH + dy;
+      const maxH = window.innerHeight - 80;    // 至少给画面上方留 80px
+      if (h < 120) h = 120;
+      if (h > maxH) h = maxH;
+      panel.style.height = h + 'px';
+      ev.preventDefault();
+    };
+    const up = () => {
+      if (!dragging) return;
+      dragging = false;
+      try { localStorage.setItem('panelH:' + panel.id, String(Math.round(panel.getBoundingClientRect().height))); } catch (e) { }
+    };
+
+    grip.addEventListener('touchstart', down, { passive: false });
+    grip.addEventListener('touchmove', move, { passive: false });
+    grip.addEventListener('touchend', up);
+    grip.addEventListener('touchcancel', up);
+    grip.addEventListener('mousedown', down);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+}
+
 function panelAct(id) {
-  return ({ keysPanel: 'keys', inputPanel: 'input', filesPanel: 'files', powerPanel: 'power' })[id] || '';
+  return ({ keysPanel: 'keys', vkbdPanel: 'vkbd', inputPanel: 'input', filesPanel: 'files', powerPanel: 'power' })[id] || '';
 }
 
 function refreshFiles(path) {
@@ -1348,7 +1903,7 @@ function renderFiles(data) {
   if (data.parent) {
     const row = document.createElement('div');
     row.className = 'file-row';
-    row.innerHTML = '<span class="fi">↩</span><span class="fn"><b>返回上一级</b></span>';
+    row.innerHTML = '<span class="fi">↑</span><span class="fn"><b>返回上一级</b></span>';
     row.onclick = () => refreshFiles(data.parent);
     list.appendChild(row);
   }
@@ -1479,6 +2034,99 @@ function boot() {
   loadSettings();
   renderKeys();
   setupGestures();
+  setupPanelGrips();
+  vkScrollGuardInit();
+
+  // 提示条的文案 + 「拖动画面」/「放大画面」两个按钮的外观，全部由这一个函数决定。
+  //
+  // 为什么必须集中：之前这三处各写一份更新代码（一键按钮里写一次、各自 onclick 里
+  // 再写一次），必然漏掉 —— 实际就出现了"提示文字说拖动中、按钮却还是灰的"这种
+  // 状态与外观不一致（用户截图反馈）。
+  // 现在唯一的规则是：**任何改动 state 的地方，改完调一次 syncKbButtons()**。
+  window.syncKbButtons = () => {
+    const panBtn = $('#vkbdPan');
+    const zoomBtn = $('#vkbdZoom');
+    const txt = document.getElementById('vkbdTipText');
+    const go = document.getElementById('vkbdTipGo');
+
+    if (panBtn) {
+      panBtn.classList.toggle('on', !!state.panMode);
+      panBtn.textContent = state.panMode ? '拖动中' : '拖动画面';
+    }
+    if (zoomBtn) {
+      zoomBtn.classList.toggle('on', !!state.kbZoom);
+      zoomBtn.textContent = state.kbZoom ? '还原大小' : '放大画面';
+    }
+    if (txt) {
+      if (state.panMode && state.kbZoom) {
+        txt.textContent = '拖动中：单指拖动画面可上下左右查看（此时不能移动鼠标）';
+      } else if (state.panMode) {
+        txt.textContent = '已允许拖动，但画面未放大 —— 画面完整显示时没有可移动的空间，请点「放大画面」';
+      } else {
+        txt.textContent = '拖动画面需先点「放大画面」，再点「拖动画面」';
+      }
+    }
+    if (go) {
+      // 两步都完成了就不必再显示一键按钮
+      const done = state.panMode && state.kbZoom;
+      go.style.display = done ? 'none' : '';
+      go.textContent = state.panMode ? '先放大画面' : '一键放大并允许拖动';
+    }
+  };
+  // 兼容旧调用点
+  window.refreshKbTip = window.syncKbButtons;
+
+  // 「拖动画面」按钮：默认拖动=移动鼠标；开启后拖动=移动画面。
+  // 必须做成显式开关 —— 混合判定（按落点区分）在放大后不成立，而且会屏蔽虚拟鼠标。
+  const panBtn = $('#vkbdPan');
+  if (panBtn) {
+    panBtn.onclick = (ev) => {
+      if (ev) ev.stopPropagation();
+      state.panMode = !state.panMode;
+      // 关闭拖动模式**不复位画面**：用户拖到哪里就停在哪里。
+      // （之前这里主动把 pan 归零，用户反馈"取消拖动后又回到屏幕中央"。）
+      // 不弹 Toast：按钮点亮状态 + 提示条已经说明了当前模式，
+      // 再弹一次同样的话就是重复提示（用户反馈"通知重复了"）。
+      window.syncKbButtons();
+      if (state.panMode) {
+        // 只在这一种情况下给提示：用户开了拖动但没放大，此时拖不动，容易困惑
+        if (!state.kbZoom) toast('画面未放大，拖动没有可移动的空间 —— 请先点「放大画面」', 3000);
+      } else {
+        toast('已恢复：拖动=移动鼠标（画面停在当前位置）', 2200);
+      }
+    };
+  }
+
+  // 一键按钮：同时打开"放大"与"拖动"，省得用户自己摸索两步。
+  const tipGo = document.getElementById('vkbdTipGo');
+  if (tipGo) {
+    tipGo.onclick = (ev) => {
+      if (ev) ev.stopPropagation();
+      state.kbZoom = true;
+      state.panMode = true;
+      scheduleRedraw();
+      window.syncKbButtons();
+      // 也不弹 Toast：提示条已变成"拖动中：单指拖动画面可上下左右查看"，
+      // 按钮也都点亮了，状态一目了然。
+    };
+  }
+
+  // 「放大画面」按钮：放大后才拖得动（不放大时可拖距离为 0）
+  const zoomBtn = $('#vkbdZoom');
+  if (zoomBtn) {
+    zoomBtn.onclick = (ev) => {
+      if (ev) ev.stopPropagation();
+      state.kbZoom = !state.kbZoom;
+      state.panX = 0; state.panY = 0;
+      scheduleRedraw();
+      // 同样不弹 Toast（按钮文字在"放大画面"/"还原大小"之间切换，已足够明确）。
+      // 但如果用户是在拖动模式下取消放大，画面就没得拖了，这时要提醒一句。
+      window.syncKbButtons();
+      if (state.panMode && !state.kbZoom) {
+        toast('已还原大小：拖动没有可移动的空间了（画面完整显示）', 2600);
+      }
+    };
+  }
 
   $('#connectBtn').onclick = connect;
   $('#codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
@@ -1522,8 +2170,9 @@ function boot() {
         return;
       }
       if (act === 'more') { $('#drawer').classList.remove('hidden'); send({ type: 'sysinfo' }); return; }
-      const map = { keys: 'keysPanel', input: 'inputPanel', files: 'filesPanel', power: 'powerPanel' };
+      const map = { keys: 'keysPanel', vkbd: 'vkbdPanel', input: 'inputPanel', files: 'filesPanel', power: 'powerPanel' };
       openPanel(map[act]);
+      if (act === 'vkbd') { renderVkbd(); refreshKbTip(); }   // vkbd-open 由 openPanel 统一 toggle
       if (act === 'files') refreshFiles();
     };
   });
@@ -1716,8 +2365,7 @@ function boot() {
     vmTop.onclick = (ev) => {
       ev.stopPropagation();
       const on = !state.vmouse.enabled;
-      setVmouseEnabled(on);
-      vmTop.classList.toggle('on', on);
+      setVmouseEnabled(on);   // 图标刷新已收进 setVmouseEnabled，两处不会再不同步
       toast(on ? '虚拟鼠标：开（滑动屏幕移动电脑光标）' : '虚拟鼠标：关（改为直接点击）');
     };
     vmTop.classList.toggle('on', !!state.vmouse.enabled);
@@ -1834,7 +2482,7 @@ function startFullscreen(el) {
   } catch (e) { requested = null; }
 
   const done = () => {
-    enterImmersive(true);   // 工具条保持完整显示（想收起时点工具条最右边的「⌄」）
+    enterImmersive(true);   // 工具条保持完整显示（想收起时点工具条最右边的"收起"按钮）
     toast('已进入沉浸模式；顶部信息栏已隐藏，工具条仍在底部');
   };
   if (requested && typeof requested.then === 'function') requested.then(done).catch(done);
@@ -1843,7 +2491,7 @@ function startFullscreen(el) {
 
 /* 全屏状态的界面同步。
    注意：这里**绝对不能用 textContent / innerHTML 去改图标按钮**！
-   之前写成 fb.textContent = '⌃'，会把按钮里的 SVG 整个抹掉，
+   之前写成 fb.textContent = ''，会把按钮里的 SVG 整个抹掉，
    圆钮就变成一个没有图标的空按钮 —— 用户看到"点了没反应"其实就是图标没了。
    现在只切换 CSS 类（.on / .barhidden），图标由 CSS 各自决定。 */
 function updateFullscreenUi() {

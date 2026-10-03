@@ -5,7 +5,7 @@
 ;   /DAdminMode     = 管理员模式，可自动添加防火墙规则、自定义监听端口
 
 #define AppName "局域网远程控制"
-#define AppVersion "2.5.0"
+#define AppVersion "2.5.2"
 #define AppPublisher "xiaoke"
 #define AppCopyright "Copyright (C) 2026 xiaoke"
 #define ServerExe "LanControlServer.exe"
@@ -23,9 +23,9 @@ UninstallDisplayName={#AppName} 被控端
 UninstallDisplayIcon={app}\{#ServerExe}
 OutputDir=..\..\dist
 #ifdef AdminMode
-OutputBaseFilename=LanControl-Setup-2.5.0-admin
+OutputBaseFilename=LanControl-Setup-2.5.2-admin
 #else
-OutputBaseFilename=LanControl-Setup-2.5.0
+OutputBaseFilename=LanControl-Setup-2.5.2
 #endif
 SetupIconFile=app.ico
 Compression=lzma2/max
@@ -44,7 +44,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 ; 版本资源：之前写死 1.0.0.0，与应用版本 2.5.0 不一致，安装包属性里显示错误的版本号
-VersionInfoVersion=2.5.0.0
+VersionInfoVersion=2.5.2.0
 VersionInfoDescription=局域网远程控制 被控端 安装程序
 VersionInfoProductName={#AppName}
 VersionInfoCompany={#AppPublisher}
@@ -133,6 +133,13 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 Type: filesandordirs; Name: "{app}\logs"
 
 [Code]
+// 卸载记录路径（Inno 把 AppId 里的 {GUID} 存成 {GUID}_is1）。
+// AppId 是固定常量，直接写完整路径最省事 —— 用 {#AppId} 内联会因为值本身含花括号
+// 而破坏 Pascal 语法。
+// 前置声明：Pascal 脚本里被调用的过程需先声明（forward），否则要定义在调用之前
+procedure RemoveNotifyIconSettings();
+  forward;
+
 var
   PortPage: TInputQueryWizardPage;
 
@@ -263,6 +270,38 @@ begin
     // 兜底：万一程序已经被手动删掉，--uninstall-clean 跑不了，
     // 这里再清一次残留注册表（失败不影响卸载）。
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'LanControlServer');
+    // 卸载记录由安装器自己写、也必须自己删。
+    // 实测出现过卸载完成后这条记录仍在、且 InstallLocation 指向已删除目录，
+    // Geek Uninstaller 把它算作残留。这里显式删掉，不依赖 Inno 的自动清理。
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER,
+      'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F3A1C2E-5B7D-4A6F-9C21-7E4D5A8B1F30}_is1');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER,
+      'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{8F3A1C2E-5B7D-4A6F-9C21-7E4D5A8B1F30}_is1');
     RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\LanControl');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\LanControlServer');
+    // 托盘图标的固定状态：NotifyIconSettings 下每个程序一个子键，
+    // 里面记着 ExecutablePath。把本程序的那些子键整键删掉，
+    // 否则卸载后仍会留下"自己留下来的注册表"。
+    RemoveNotifyIconSettings();
+  end;
+end;
+
+// 删除 NotifyIconSettings 下属于本程序的条目（按 ExecutablePath 判断）。
+procedure RemoveNotifyIconSettings();
+var
+  Names: TArrayOfString;
+  I: Integer;
+  ExePath: String;
+begin
+  if not RegGetSubkeyNames(HKEY_CURRENT_USER, 'Control Panel\NotifyIconSettings', Names) then
+    exit;
+  for I := 0 to GetArrayLength(Names) - 1 do
+  begin
+    ExePath := '';
+    RegQueryStringValue(HKEY_CURRENT_USER,
+      'Control Panel\NotifyIconSettings\' + Names[I], 'ExecutablePath', ExePath);
+    if (ExePath <> '') and (Pos('LanControlServer.exe', ExePath) > 0) then
+      RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER,
+        'Control Panel\NotifyIconSettings\' + Names[I]);
   end;
 end;

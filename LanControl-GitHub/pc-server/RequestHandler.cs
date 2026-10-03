@@ -86,6 +86,20 @@ internal static class RequestHandler
             return;
         }
 
+        // 列出服务端支持的键名 —— 自检脚本用它核对手机端键盘上的每个键。
+        // 存在的意义：手机端曾把 'shiftL' 当作键名发给服务端，而服务端不认，
+        // 表现是"Shift 键完全无效"，但客户端毫无提示、极难排查。
+        if (path.Equals("/api/keys", StringComparison.OrdinalIgnoreCase))
+        {
+            var list = InputInjector.SupportedKeys.OrderBy(k => k, StringComparer.Ordinal).ToArray();
+            await res.SendJsonAsync(Json.Str(new
+            {
+                ok = true,
+                count = list.Length,
+                keys = list,
+            }));
+            return;
+        }
         if (path.Equals("/api/files", StringComparison.OrdinalIgnoreCase))
         {
             string p = req.Query("path", Program.Context.FileRoot);

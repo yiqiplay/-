@@ -110,6 +110,8 @@
         <svg viewBox="0 0 24 24" class="ti"><path d="M12 3l4 4H8zM12 21l-4-4h8z"/></svg><span>滚动</span></button>
       <button class="tb" data-act="keys">
         <svg viewBox="0 0 24 24" class="ti"><rect x="2" y="6" width="20" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 10h1M10 10h1M14 10h1M18 10h.5M7 14h10" stroke="currentColor" stroke-width="1.6" fill="none"/></svg><span>按键</span></button>
+      <button class="tb" data-act="vkbd">
+        <svg viewBox="0 0 24 24" class="ti"><rect x="2" y="6" width="20" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 9.5h1.2M9.4 9.5h1.2M12.8 9.5h1.2M16.2 9.5h1.2M6 12.5h1.2M9.4 12.5h1.2M12.8 12.5h1.2M16.2 12.5h1.2M7 15.5h10" stroke="currentColor" stroke-width="1.4" fill="none"/></svg><span>键盘</span></button>
       <button class="tb" data-act="input">
         <svg viewBox="0 0 24 24" class="ti"><path d="M4 20l1-4L16 5l3 3L8 19z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>打字</span></button>
       <button class="tb" data-act="files">
@@ -197,14 +199,34 @@
       </div>
     </aside>
 
+    <!-- 虚拟键盘：完整按键 + 粘滞修饰键（可做 Ctrl+C 这类组合键） -->
+    <div id="vkbdPanel" class="panel hidden">
+      <div class="panel-grip" data-grip="vkbdPanel"></div>
+      <div class="panel-head"><strong>虚拟键盘</strong>
+        <span id="vkbdArmed" class="vkbd-armed"></span>
+        <button id="vkbdPan" class="vkbd-zoom" title="开启后单指拖动=移动画面（否则拖动=移动鼠标）">拖动画面</button>
+        <button id="vkbdZoom" class="vkbd-zoom" title="放大画面后即可拖动查看">放大画面</button>
+        <button class="panel-close icon-btn">✕</button></div>
+      <!-- 提示条：打开键盘时明确告诉你当前能做什么、想拖画面要先做什么 -->
+      <div class="vkbd-tip" id="vkbdTip">
+        <span id="vkbdTipText">拖动画面需先点「放大画面」，再点「拖动画面」</span>
+        <span class="vkbd-hint" id="vkbdHint">单击修饰键预备组合 · 双击/长按 = 单独发送该键 · 长按字母/退格可连发</span>
+        <button id="vkbdTipGo" class="vkbd-tip-go">一键放大并允许拖动</button>
+      </div>
+      <div class="vkbd-mods" id="vkbdMods"></div>
+      <div class="vkbd-body" id="vkbdBody"></div>
+    </div>
+
     <!-- 键盘条 -->
     <div id="keysPanel" class="panel hidden">
+      <div class="panel-grip" data-grip="keysPanel"></div>
       <div class="panel-head"><strong>常用按键</strong><button class="panel-close icon-btn">✕</button></div>
       <div class="key-grid" id="keyGrid"></div>
     </div>
 
     <!-- 文本输入 -->
     <div id="inputPanel" class="panel hidden">
+      <div class="panel-grip" data-grip="inputPanel"></div>
       <div class="panel-head"><strong>往电脑打字</strong><button class="panel-close icon-btn">✕</button></div>
       <textarea id="textInput" rows="3" placeholder="在这里输入，可输入中文；点“发送”后电脑会收到内容"></textarea>
       <div class="row">
@@ -218,6 +240,7 @@
 
     <!-- 文件管理 -->
     <div id="filesPanel" class="panel hidden">
+      <div class="panel-grip" data-grip="filesPanel"></div>
       <div class="panel-head"><strong>文件传输</strong><button class="panel-close icon-btn">✕</button></div>
       <div id="breadcrumb" class="breadcrumb"></div>
       <div class="row">
@@ -231,6 +254,7 @@
 
     <!-- 电源 -->
     <div id="powerPanel" class="panel hidden">
+      <div class="panel-grip" data-grip="powerPanel"></div>
       <div class="panel-head"><strong>电源与系统</strong><button class="panel-close icon-btn">✕</button></div>
       <div class="power-grid">
         <button class="pbtn" data-power="lock"><svg viewBox="0 0 24 24" class="ti"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>锁定</span></button>
@@ -240,7 +264,7 @@
         <button class="pbtn" data-power="logoff"><svg viewBox="0 0 24 24" class="ti"><path d="M14 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 8l-4 4 4 4M6 12h8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>注销</span></button>
         <button class="pbtn" data-power="taskmgr"><svg viewBox="0 0 24 24" class="ti"><path d="M4 19V5M4 19h16M8 15v-4M12 15V7M16 15v-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>任务管理器</span></button>
         <button class="pbtn warn" data-power="restart"><svg viewBox="0 0 24 24" class="ti"><path d="M20 12a8 8 0 11-2.3-5.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>重启</span></button>
-        <button class="pbtn danger" data-power="shutdown">⏻<span>关机</span></button>
+        <button class="pbtn danger" data-power="shutdown"><svg viewBox="0 0 24 24" class="ti"><path d="M12 3v9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 6.8a8 8 0 1011 0" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>关机</span></button>
       </div>
       <div class="row">
         <button class="wide-btn ghost" data-power="cancel">取消关机倒计时</button>

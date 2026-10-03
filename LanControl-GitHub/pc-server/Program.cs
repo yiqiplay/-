@@ -14,7 +14,7 @@ namespace LanControl;
 [SupportedOSPlatform("windows")]
 internal static class Program
 {
-    public const string Version = "2.5.0";
+    public const string Version = "2.5.2";
     public const int DefaultPort = 8848;
     public const int DiscoveryPort = 8849;
     private const string MutexNameBase = @"Global\LanControlServer.SingleInstance";
@@ -112,6 +112,14 @@ internal static class Program
             return;
         }
 
+        // ---------- 演练模式：按键只记录不注入 ----------
+        // 自动化测试必须用它 —— 否则发送 Win / CapsLock 会直接干扰正在用电脑的人。
+        if (HasFlag(args, "--keys-dryrun"))
+        {
+            InputInjector.DryRun = true;
+            Log.Info("已启用按键演练模式：按键只记录、不注入系统");
+        }
+
         // ---------- 系统音频自检 ----------
         if (HasFlag(args, "--audio-test"))
         {
@@ -186,6 +194,36 @@ internal static class Program
         //   1) 结束仍在运行的被控端（否则文件删不掉，会留下半卸载状态）
         //   2) 清理托盘图标提升注册表（真实残留项）
         //   3) 删除 Software\LanControl 记忆项
+        // ---------- 残留清理（可重复运行）----------
+        // 卸载程序的兜底清理只在"它正常跑到最后一步"时才执行。
+        // 实际发生过：杀毒软件锁文件 / 用户手动删了目录 / 卸载中断，
+        // 结果留下 Uninstall 记录、Run 项等残留，而 unins000.exe 可能已经没了。
+        // 这个开关就是那种情况下的兜底，不改任何设置、只清残留。
+        if (HasFlag(args, "--cleanup-traces"))
+        {
+            var sb = new System.Text.StringBuilder();
+            try { HandleRunningInstances(true, out string m1); sb.AppendLine("running: " + m1); }
+            catch (Exception ex) { sb.AppendLine("running: FAIL " + ex.Message); }
+            try { sb.AppendLine("trayPromotion: " + CleanTrayPromotion()); } catch { }
+            try { sb.AppendLine("autoStart: " + (RemoveAutoStart() ? "removed" : "notPresent")); } catch { }
+            try
+            {
+                foreach (var k in new[] { @"Software\LanControl", @"Software\LanControlServer", @"Software\局域网远程控制" })
+                {
+                    try { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(k, false); } catch { }
+                }
+                sb.AppendLine("settings: cleaned");
+            }
+            catch { }
+            try
+            {
+                sb.AppendLine("uninstallRecords: " + CleanUninstallRecords((s) => sb.AppendLine(s)));
+            }
+            catch (Exception ex) { sb.AppendLine("uninstallRecords: FAIL " + ex.Message); }
+            Console.WriteLine(sb.ToString());
+            ExitCode = 0;
+            return;
+        }
         if (HasFlag(args, "--uninstall-clean"))
         {
             var cleanLog = new System.Text.StringBuilder();
@@ -207,6 +245,33 @@ internal static class Program
                 cleanLog.AppendLine("savedSettings: removed");
             }
             catch (Exception ex) { cleanLog.AppendLine("savedSettings: FAIL " + ex.Message); }
+            // 开机自启项必须清掉，否则卸载后每次开机 Windows 都会尝试启动已删除的 exe。
+            try
+            {
+                bool had = RemoveAutoStart();
+                cleanLog.AppendLine("autoStart: " + (had ? "removed" : "notPresent"));
+            }
+            catch (Exception ex) { cleanLog.AppendLine("autoStart: FAIL " + ex.Message); }
+            // 安装器可能把程序装在别的目录，那两个目录名的历史条目也顺手清一遍
+            try
+            {
+                foreach (var legacy in new[] { @"Software\LanControlServer", @"Software\局域网远程控制" })
+                {
+                    try { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(legacy, false); }
+                    catch { }
+                }
+                cleanLog.AppendLine("legacyKeys: cleaned");
+            }
+            catch (Exception ex) { cleanLog.AppendLine("legacyKeys: FAIL " + ex.Message); }
+            // 卸载记录（Inno Setup 写入的 HKCU\...\Uninstall\<AppId>_is1）必须自己清掉。
+            // 只依赖卸载程序在最后一步删它是不够的：实测出现过"卸载完成后
+            // Uninstall 记录仍在、且指向已删除的安装目录"，Geek Uninstaller 也报残留。
+            try
+            {
+                int n = CleanUninstallRecords((s) => cleanLog.AppendLine(s));
+                cleanLog.AppendLine("uninstallRecords: " + n);
+            }
+            catch (Exception ex) { cleanLog.AppendLine("uninstallRecords: FAIL " + ex.Message); }
 
             try
             {
@@ -802,6 +867,9 @@ internal static class Program
             string exeDir = "";
             try { exeDir = Path.GetDirectoryName(exe) ?? ""; } catch { }
 
+            // 先收集匹配到的子键名（并且只删 IsPromoted 值），再逐个删整个子键。
+            // 不边遍历边删：枚举过程中删除子键会让枚举结果不可靠。
+            var mine = new List<string>();
             foreach (var name in root.GetSubKeyNames())
             {
                 try
@@ -809,23 +877,145 @@ internal static class Program
                     using var k = root.OpenSubKey(name, writable: true);
                     if (k == null) continue;
                     string? path = k.GetValue("ExecutablePath") as string;
-                    bool mine = false;
+                    bool hit = false;
                     if (!string.IsNullOrEmpty(path))
                     {
                         // 同一个程序可能从不同目录装过多次，凡是本程序名的条目都算自己的
-                        if (path.EndsWith(exeName, StringComparison.OrdinalIgnoreCase)) mine = true;
+                        if (path.EndsWith(exeName, StringComparison.OrdinalIgnoreCase)) hit = true;
                         else if (!string.IsNullOrEmpty(exeDir) &&
-                                 path.StartsWith(exeDir, StringComparison.OrdinalIgnoreCase)) mine = true;
+                                 path.StartsWith(exeDir, StringComparison.OrdinalIgnoreCase)) hit = true;
                     }
-                    if (!mine) continue;
+                    if (!hit) continue;
                     k.DeleteValue("IsPromoted", false);
-                    removed++;
+                    k.DeleteValue("IsPromotedByUser", false);
+                    mine.Add(name);
                 }
                 catch { }
+            }
+
+            // 把整个条目删掉 —— 只删 IsPromoted 值会留下 NotifyIconSettings\<hash> 空壳，
+            // 那就是"卸载后还留着注册表"的一部分（用户反馈）。
+            foreach (var name in mine)
+            {
+                try
+                {
+                    using (var k = root.OpenSubKey(name, writable: true))
+                    {
+                        // 先清掉咱们认识的这几个值，万一删键失败也不至于留下"已固定"状态
+                        k?.DeleteValue("IsPromoted", false);
+                        k?.DeleteValue("IsPromotedByUser", false);
+                    }
+                    root.DeleteSubKeyTree(name, false);
+                    removed++;
+                }
+                catch { /* 键被系统占用时删不掉，忽略即可 */ }
             }
         }
         catch { }
         return removed;
+    }
+
+    /// <summary>
+    /// 删除 Inno Setup 写入的"卸载记录"。
+    ///
+    /// 这些记录在 HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\&lt;AppId&gt;_is1，
+    /// 用来在"应用和功能"里显示本程序。正常情况下卸载程序会自己删掉，
+    /// 但实测出现过卸载后记录仍在、且 InstallLocation 指向已删除目录的情况
+    /// （用户用 Geek Uninstaller 扫描时看到 6 项残留）。
+    /// 所以主动清一遍：按 DisplayName / UninstallString / InstallLocation 判断是否属于本程序。
+    /// </summary>
+    /// <summary>
+    /// 本程序安装器写入的卸载记录 AppId（Inno Setup 的 AppId 去掉外层花括号后的形式，
+    /// 加上 "_is1" 后缀就是注册表子键名）。
+    /// 直接按名字删最可靠 —— 历史上换过安装目录，靠 InstallLocation 反查容易漏。
+    /// </summary>
+    private static readonly string[] InstallerAppIds =
+    {
+        "{8F3A1C2E-5B7D-4A6F-9C21-7E4D5A8B1F30}_is1",
+    };
+    public static int CleanUninstallRecords()
+        => CleanUninstallRecords(null);
+
+    public static int CleanUninstallRecords(Action<string>? log)
+    {
+        int removed = 0;
+        foreach (var rootPath in new[]
+        {
+            @"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            @"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        })
+        {
+            try
+            {
+                // 注意：Registry.CurrentUser.OpenSubKey(rootPath, writable: true) 在拿不到
+                // 写权限时会**返回 null 而不抛异常**，于是整个循环静默跳过、什么都不做。
+                // 所以每一步都记录结果，避免这种"看着跑了、其实没干活"的情况。
+                using var root = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(rootPath, writable: true);
+                if (root == null)
+                {
+                    log?.Invoke("  " + rootPath + ": 无写权限或不存在（跳过）");
+                    continue;
+                }
+
+                var names = root.GetSubKeyNames();
+                log?.Invoke("  " + rootPath + ": " + names.Length + " 个子键");
+                foreach (var name in names)
+                {
+                    bool mine = false;
+                    // 先按已知 AppId 精确匹配（最可靠 —— 不管显示名被改成什么、
+                    // 也不管安装目录换过几次，子键名是固定的），再看显示名字段。
+                    foreach (var id in InstallerAppIds)
+                    {
+                        if (string.Equals(name, id, StringComparison.OrdinalIgnoreCase)) { mine = true; break; }
+                    }
+                    try
+                    {
+                        if (!mine)
+                        {
+                            using var sub = root.OpenSubKey(name);
+                            if (sub == null) continue;
+                            string disp = sub.GetValue("DisplayName") as string ?? "";
+                            string unins = sub.GetValue("UninstallString") as string ?? "";
+                            string loc = sub.GetValue("InstallLocation") as string ?? "";
+                            mine = disp.IndexOf("局域网远程控制", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   disp.IndexOf("LanControl", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   unins.IndexOf("LanControl", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   loc.IndexOf("LanControl", StringComparison.OrdinalIgnoreCase) >= 0;
+                        }
+                    }
+                    catch (Exception ex) { log?.Invoke("    读 " + name + " 失败: " + ex.Message); }
+                    if (!mine) continue;
+                    try
+                    {
+                        root.DeleteSubKeyTree(name, false);
+                        removed++;
+                        log?.Invoke("    已删除 " + name);
+                    }
+                    catch (Exception ex) { log?.Invoke("    删除 " + name + " 失败: " + ex.Message); }
+                }
+            }
+            catch (Exception ex) { log?.Invoke("  " + rootPath + " 出错: " + ex.Message); }
+        }
+        return removed;
+    }
+
+    /// <summary>
+    /// 移除"开机自启"注册表项。
+    /// 卸载时必须调用：否则用户卸载后每次开机 Windows 仍会尝试启动已删除的 exe。
+    /// （安装器的 [Code] 里虽然也有兜底清理，但程序被手动删掉时那段代码跑不到。）
+    /// </summary>
+    public static bool RemoveAutoStart()
+    {
+        try
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
+            if (k == null) return false;
+            if (k.GetValue("LanControlServer") == null) return false;
+            k.DeleteValue("LanControlServer", false);
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>

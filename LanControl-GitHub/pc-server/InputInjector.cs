@@ -139,9 +139,43 @@ internal static class InputInjector
         }
     };
 
+    /// <summary>
+    /// 演练模式（--keys-dryrun）：只记录要注入什么，**不真的发给系统**。
+    ///
+    /// 存在的意义：自动化测试如果真注入按键，会直接干扰正在用这台电脑的人 ——
+    /// 实测中发送 Win 键会弹出开始菜单、发送 CapsLock 会切换大小写，
+    /// 用户反馈"改动对我的现实按键产生了临时性改变"。测试链路时应该用这个模式。
+    /// </summary>
+    public static bool DryRun { get; set; }
+
+    /// <summary>演练模式下记录下来的按键（供自检脚本核对）。</summary>
+    public static readonly List<string> DryRunLog = new();
+
     private static void Send(params INPUT[] inputs)
     {
         if (inputs.Length == 0) return;
+        if (DryRun)
+        {
+            lock (DryRunLog)
+            {
+                foreach (var i in inputs)
+                {
+                    if (i.type == INPUT_KEYBOARD)
+                    {
+                        uint vk = i.u.ki.wVk;
+                        bool up = (i.u.ki.dwFlags & KEYEVENTF_KEYUP) != 0;
+                        DryRunLog.Add($"{vk:X2}{(up ? "-up" : "-down")}");
+                    }
+                    else
+                    {
+                        DryRunLog.Add($"mouse:0x{i.u.mi.dwFlags:X4}");
+                    }
+                }
+                // 只保留最近 500 条，避免长跑时无限增长
+                if (DryRunLog.Count > 500) DryRunLog.RemoveRange(0, DryRunLog.Count - 500);
+            }
+            return;   // 关键：不调用 SendInput
+        }
         SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
     }
 
@@ -283,6 +317,9 @@ internal static class InputInjector
         }
         catch { }
     }
+
+    /// <summary>服务端支持的全部键名（自检用：手机端键盘上的每个键名都必须在这里）。</summary>
+    public static IEnumerable<string> SupportedKeys => VkMap.Keys;
 
     private static readonly Dictionary<string, ushort> VkMap = new(StringComparer.OrdinalIgnoreCase)
     {
