@@ -6,7 +6,7 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v8.0": {
-      "LanControlServer/2.5.2": {
+      "LanControlServer/2.5.3": {
         "runtime": {
           "LanControlServer.dll": {}
         }
@@ -14,7 +14,7 @@
     }
   },
   "libraries": {
-    "LanControlServer/2.5.2": {
+    "LanControlServer/2.5.3": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

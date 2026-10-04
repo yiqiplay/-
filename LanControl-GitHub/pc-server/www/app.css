@@ -310,6 +310,10 @@ body.immersive #floatingExit { display: flex; }
 body:not(.immersive) #floatingExit { display: none; }
 /* 全屏但页面还没切到 immersive 时也要能看到退出入口 */
 body.fs #floatingExit { display: flex; }
+/* 编辑触屏按键时隐藏断开连接钮：它固定在右上角，会和右侧设置面板的收起把手
+   叠在一起（用户截图反馈"收起键和断开连接键重叠"）。
+   编辑模式下的退出入口由工具条上的「完成」承担。 */
+body.ck-editing #floatingExit { display: none !important; }
 
 body.immersive #toolbar {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 14;
@@ -486,3 +490,169 @@ body.vkbd-open #vkbdPanel { bottom: 0; }
   background: var(--accent); color: #06121f; border: 1px solid var(--accent);
 }
 .vkbd-tip-go:active { opacity: .8; }
+/* ---------- 触屏按键（用户自定义按键） ---------- */
+.custom-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: 10px 14px calc(16px + env(safe-area-inset-bottom));
+}
+/* 悬浮在画面上的触屏按键 */
+#customOverlay {
+  position: absolute; inset: 0; pointer-events: none;   /* 容器不拦触摸，只有按键本身可点 */
+  z-index: 12; transition: opacity .15s;
+}
+#customOverlay.hidden { display: none; }
+.ck-btn {
+  position: absolute; transform: translate(-50%, -50%);  /* x/y 是按键中心 */
+  pointer-events: auto; touch-action: none;              /* 自己处理拖动，别让浏览器滚页面 */
+  min-width: 46px; height: 46px; padding: 0 8px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: rgba(16, 22, 30, .55);
+  border: 1.5px solid rgba(255, 255, 255, .55);
+  color: #fff; font-size: 13px; font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+.ck-btn.wide { min-width: 74px; border-radius: 26px; }
+.ck-btn.pressed { background: rgba(77, 163, 255, .85); border-color: #fff; color: #06121f; }
+.custom-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; margin-bottom: 6px; border-radius: 8px;
+  background: var(--bg3); border: 1px solid var(--line);
+}
+.custom-item .ci-label { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+.custom-item .ci-keys { font-size: 11px; color: var(--dim); }
+.custom-item button {
+  flex: 0 0 auto; height: 28px; padding: 0 8px; border-radius: 6px; font-size: 12px;
+  background: var(--bg2); border: 1px solid var(--line); color: var(--txt);
+}
+.custom-item button.danger { color: #ff8080; border-color: #7a3a3a; }
+/* ---------- 触屏按键编辑器（工具条 + 参考线 + 选中态 + 形状） ---------- */
+.ck-toolbar {
+  position: fixed; left: 50%; transform: translateX(-50%); top: 8px;
+  z-index: 40; display: flex; align-items: center; gap: 2px;
+  padding: 6px 10px; border-radius: 12px;
+  background: rgba(18, 24, 32, .92); border: 1px solid var(--line);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .45);
+}
+.ck-toolbar.hidden { display: none; }
+.ck-count { min-width: 18px; text-align: center; font-size: 15px; font-weight: 700; color: #fff; }
+.ck-sep { width: 1px; height: 20px; margin: 0 8px; background: rgba(255, 255, 255, .25); }
+.ck-tb {
+  min-width: 36px; height: 32px; padding: 0 8px; border: none; border-radius: 8px;
+  background: transparent; color: #fff; font-size: 17px; line-height: 1;
+}
+.ck-tb:active { background: rgba(255, 255, 255, .16); }
+.ck-tb:disabled { opacity: .35; }
+.ck-tb.ck-done { font-size: 13px; background: var(--accent); color: #06121f; font-weight: 700; }
+
+/* 参考线：拖动到中线/中心时出现，帮助对齐 */
+.ck-snap { position: absolute; background: rgba(77, 163, 255, .85); pointer-events: none; z-index: 11; }
+.ck-snap.hidden { display: none; }
+.ck-snap.v { left: 50%; top: 0; bottom: 0; width: 1px; }
+.ck-snap.h { top: 50%; left: 0; right: 0; height: 1px; }
+.ck-snap.c {
+  left: 50%; top: 50%; width: 88px; height: 88px; margin: -44px 0 0 -44px;
+  background: transparent; border: 1.5px solid rgba(77, 163, 255, .7); border-radius: 50%;
+}
+
+/* 选中态：白色粗边框 + 更亮，和参考图一致 */
+.ck-btn.selected {
+  border-color: #fff; border-width: 3px;
+  box-shadow: 0 0 0 3px rgba(77, 163, 255, .55), 0 3px 12px rgba(0, 0, 0, .5);
+  background: rgba(30, 40, 52, .8);
+}
+.ck-btn.shape-square { border-radius: 10px; }
+.ck-btn.shape-rounded { border-radius: 14px; }
+/* 长按连发中：脉动提示，让用户知道正在连续发送 */
+.ck-btn.repeating { animation: ckPulse .5s ease-in-out infinite; border-color: #ffd166; }
+@keyframes ckPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,209,102,.75); } 50% { box-shadow: 0 0 0 8px rgba(255,209,102,0); } }
+/* 开了连发的按键：右上角一个小标记 */
+.ck-btn.repeat::after {
+  content: ''; position: absolute; right: 3px; top: 3px;
+  width: 7px; height: 7px; border-radius: 50%; background: #ffd166;
+}
+/* 切换开关类的"亮"状态 */
+.ck-btn.on { background: rgba(77, 163, 255, .85); border-color: #fff; color: #06121f; }
+/* 编辑模式下所有按键加一层虚线提示"可拖动" */
+#customOverlay.editing .ck-btn { border-style: dashed; }
+#customOverlay.editing .ck-btn.selected { border-style: solid; }
+
+/* 右侧按键设置面板 */
+.ck-options {
+  position: fixed; right: 0; top: 0; bottom: 0; width: 212px; max-width: 60vw;
+  z-index: 39; overflow-y: auto; padding: 12px 14px 24px;
+  background: rgba(18, 24, 32, .82); border-left: 1px solid var(--line);
+  box-shadow: -4px 0 18px rgba(0, 0, 0, .4);
+}
+.ck-options.hidden { display: none; }
+.ck-opt-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.ck-opt-label { display: block; margin: 12px 0 6px; font-size: 12px; color: var(--dim); }
+.ck-switch {
+  width: 46px; height: 26px; border-radius: 13px; padding: 2px;
+  background: #3a4452; border: 1px solid var(--line);
+  display: flex; align-items: center;
+}
+.ck-switch span {
+  width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  transition: transform .15s;
+}
+.ck-switch.on { background: var(--accent); border-color: var(--accent); }
+.ck-switch.on span { transform: translateX(20px); }
+/* ---------- 按键设置里的固定可选按键 ---------- */
+.ck-picker { margin: 6px 0 2px; }
+.ck-pick-sec { margin-bottom: 10px; }
+.ck-pick-title { font-size: 11px; color: var(--dim); margin: 0 0 5px; }
+.ck-pick-grid { display: flex; flex-wrap: wrap; gap: 5px; }
+.ck-pick-key {
+  min-width: 38px; height: 30px; padding: 0 8px;
+  border-radius: 7px; font-size: 12px;
+  background: var(--bg3); border: 1px solid var(--line); color: var(--txt);
+}
+.ck-pick-key:active { background: var(--accent); color: #06121f; }
+/* 已选中的键：高亮，一眼看出当前绑定 */
+.ck-pick-key.on {
+  background: var(--accent); color: #06121f;
+  border-color: var(--accent); font-weight: 700;
+}
+/* 鼠标动作用另一种色调，避免和键盘键混淆 */
+.ck-pick-key.mouse { background: #2a3b2f; border-color: #3d5a45; }
+.ck-pick-key.mouse.on { background: #4caf7d; color: #06121f; border-color: #4caf7d; }
+/* ---------- 按键设置面板：可收起，避免挡住右侧画面 ---------- */
+/* 收起状态：面板整体移出屏幕，只留左边一条把手 */
+.ck-options.collapsed { transform: translateX(100%); pointer-events: none; }
+.ck-options { transition: transform .18s ease-out; }
+.ck-opt-reveal {
+  position: absolute; left: -30px; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 78px; border-radius: 8px 0 0 8px;
+  background: rgba(18, 24, 32, .92); border: 1px solid var(--line); border-right: none;
+  color: var(--dim); font-size: 12px; line-height: 1.2;
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  pointer-events: auto;
+}
+.ck-options.collapsed .ck-opt-reveal { display: flex; }
+/* 收起后工具条要能盖住把手，所以把手层级略低 */
+.ck-options { z-index: 39; }
+.ck-toolbar { z-index: 40; }
+/* ---------- 功能介绍（可折叠） ---------- */
+.ck-help {
+  margin: 4px 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: rgba(77, 163, 255, .07);
+}
+.ck-help > summary {
+  padding: 8px 10px; font-size: 12.5px; font-weight: 600; color: var(--accent);
+  cursor: pointer; list-style: none;
+}
+.ck-help > summary::-webkit-details-marker { display: none; }
+.ck-help > summary::before { content: '?'; display: inline-block; width: 14px; font-weight: 700; }
+.ck-help[open] > summary { border-bottom: 1px solid var(--line); }
+.ck-help-body { padding: 8px 10px 10px; font-size: 12px; line-height: 1.65; color: var(--txt); }
+.ck-help-body p { margin: 8px 0 4px; }
+.ck-help-body p:first-child { margin-top: 0; }
+.ck-help-body ul { margin: 0; padding-left: 18px; }
+.ck-help-body li { margin: 3px 0; }
+.ck-help-body code {
+  padding: 1px 5px; border-radius: 4px; font-size: 11.5px;
+  background: var(--bg3); border: 1px solid var(--line);
+}
+.ck-help-body b { color: #fff; }

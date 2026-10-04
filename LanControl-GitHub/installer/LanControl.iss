@@ -5,7 +5,7 @@
 ;   /DAdminMode     = 管理员模式，可自动添加防火墙规则、自定义监听端口
 
 #define AppName "局域网远程控制"
-#define AppVersion "2.5.2"
+#define AppVersion "2.5.3"
 #define AppPublisher "xiaoke"
 #define AppCopyright "Copyright (C) 2026 xiaoke"
 #define ServerExe "LanControlServer.exe"
@@ -23,9 +23,9 @@ UninstallDisplayName={#AppName} 被控端
 UninstallDisplayIcon={app}\{#ServerExe}
 OutputDir=..\..\dist
 #ifdef AdminMode
-OutputBaseFilename=LanControl-Setup-2.5.2-admin
+OutputBaseFilename=LanControl-Setup-2.5.3-admin
 #else
-OutputBaseFilename=LanControl-Setup-2.5.2
+OutputBaseFilename=LanControl-Setup-2.5.3
 #endif
 SetupIconFile=app.ico
 Compression=lzma2/max
@@ -44,15 +44,16 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 ; 版本资源：之前写死 1.0.0.0，与应用版本 2.5.0 不一致，安装包属性里显示错误的版本号
-VersionInfoVersion=2.5.2.0
+VersionInfoVersion=2.5.3.0
 VersionInfoDescription=局域网远程控制 被控端 安装程序
 VersionInfoProductName={#AppName}
 VersionInfoCompany={#AppPublisher}
 VersionInfoCopyright={#AppCopyright}
 
 [Languages]
-; 使用内置 Default.isl，并在下面覆写为简体中文文案
-Name: "cn"; MessagesFile: "compiler:Default.isl"
+; 用完整的简体中文语言文件（内置 Default.isl 是英文的，只覆写几条会剩下大量英文）
+; 文件位于 tools\innosetup\Languages\ChineseSimplified.isl（带 BOM 的 UTF-8）
+Name: "cn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [CustomMessages]
 cn.PortPageTitle=网络设置
@@ -65,6 +66,7 @@ cn.TaskStartup=开机自动启动被控端（推荐）
 cn.TaskFirewall=添加 Windows 防火墙放行规则（允许局域网手机连接）
 cn.TaskApk=复制手机安装包（APK）到桌面
 cn.LaunchApp=立即启动被控端
+cn.ReadmeTip=查看使用说明
 cn.MsgNeedDotNet=.NET 8 桌面运行时未安装，被控端需要它才能运行。%n%n请先安装：https://dotnet.microsoft.com/download/dotnet/8.0/runtime （选择“Desktop Runtime x64”）%n%n安装完成后再次运行本程序即可。
 cn.FinishedLabelNoDotNet=提示：当前电脑缺少 .NET 8 桌面运行时，被控端暂时无法运行。
 
@@ -104,7 +106,7 @@ Name: "apk"; Description: "{cm:TaskApk}"; GroupDescription: "附加任务："
 Source: "..\..\dist\*"; DestDir: "{app}"; Excludes: "LanControl-Setup-*.exe,optional\,_setup_temp\"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\dist\LanControl-Android.apk"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\..\dist\LanControl-Android.apk"; DestDir: "{userdesktop}"; DestName: "远程控制手机端.apk"; Flags: ignoreversion skipifsourcedoesntexist uninsneveruninstall; Tasks: apk
-Source: "..\..\dist\使用说明.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist isreadme
+Source: "..\..\dist\使用说明.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName} 控制面板"; Filename: "{app}\{#ServerExe}"; WorkingDir: "{app}"; Comment: "查看连接地址与配对码"
@@ -117,11 +119,20 @@ Root: HKCU; Subkey: "Software\LanControl"; ValueType: string; ValueName: "Port";
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "LanControlServer"; ValueData: """{app}\{#ServerExe}"""; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
-; 注意：这里**故意不自动启动被控端**。
-; 之前的写法（nowait postinstall）会在最后一步拉起程序，实测在部分机器上
-; 会让向导停在最后阶段不返回（安装其实已经完成，但窗口卡住）。
-; 改为安装完由用户从桌面/开始菜单快捷方式启动，最稳。
-Filename: "{app}\使用说明.txt"; Description: "查看使用说明"; Flags: shellexec nowait postinstall skipifsilent unchecked
+; 完成页提供两个勾选项：
+;   1) 立即启动被控端（默认勾选）
+;   2) 查看使用说明（默认不勾选）
+;
+; 说明条目的文案用 {cm:ReadmeTip}，并通过 ReadmeDisplayName 让
+; "[Run] 条目" 的中文前缀正常显示 —— 否则在中英混排下会显得别扭。
+;
+; 注意：不再使用 [Files] 的 isreadme 标记。那个标记同样会生成一个说明勾选项，
+; 于是完成页会出现**两个**说明项。只保留下面这一条显式条目。
+;
+; 历史踩坑：启动项曾带 --silent 拉起，会卡在托盘初始化、向导停在最后阶段不返回；
+; 现在不带 --silent（正常启动并弹出控制面板），向导能正常结束。
+Filename: "{app}\{#ServerExe}"; Description: "{cm:LaunchApp}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\使用说明.txt"; Description: "{cm:ReadmeTip}"; Flags: shellexec nowait postinstall skipifsilent unchecked
 
 #ifdef AdminMode
 [UninstallRun]

@@ -10,6 +10,8 @@ const ok = (cond, msg) => { if (!cond) failures++; console.log(`${cond ? 'PASS' 
 const html = readFileSync(join(dir, 'index.html'), 'utf8');
 const css = readFileSync(join(dir, 'app.css'), 'utf8');
 const js = readFileSync(join(dir, 'app.js'), 'utf8');
+// 触屏按键是独立文件，相关断言要看它，不能只看 app.js
+const ckjs = readFileSync(join(dir, 'customkeys.js'), 'utf8');
 
 // ---- 1) 关键元素必须存在 ----
 const mustHaveIds = [
@@ -280,6 +282,70 @@ ok(!/toast\(state\.panMode/.test(js), '拖动模式切换不再弹与提示条�
 ok(!/toast\('已放大并允许拖动/.test(js), '一键按钮不再弹与提示条重复的 Toast');
 // 但"状态不明朗"的必要提醒要保留（开了拖动却没放大 -> 拖不动，容易困惑）
 ok(/画面未放大，拖动没有可移动的空间/.test(js), '保留"未放大导致拖不动"的必要提醒');
+// ---- 10.99995) 触屏按键（自定义按键）必须存在且接入面板机制 ----
+ok(/id="customPanel"/.test(html), '页面里有触屏按键面板');
+ok(/id="btnOpenCustom"/.test(html), '「更多设置」里有触屏按键入口');
+ok(/customkeys\.js/.test(html), 'customkeys.js 已引入');
+ok(/customPanel: 'custom'/.test(js), '面板映射表已包含 customPanel');
+ok(/'custom'\]/.test(js), 'PANEL_ACTS 已包含 custom');
+// 自定义按键是独立文件，这里顺带确认它存在（避免只改了页面没建文件）
+ok(existsSync(join(dir, 'customkeys.js')), 'customkeys.js 文件存在');
+// 悬浮按键：容器不能拦触摸，否则会挡住整个画面操作
+ok(/id="customOverlay"/.test(html), '画面里有悬浮按键容器');
+ok(/#customOverlay\s*\{[^}]*pointer-events:\s*none/.test(cssNoComments),
+  '悬浮容器不拦触摸（否则会挡住画面）');
+ok(/\.ck-btn\s*\{[^}]*pointer-events:\s*auto/.test(cssNoComments), '悬浮按键本身可点');
+ok(/\.ck-btn\s*\{[^}]*touch-action:\s*none/.test(cssNoComments),
+  '悬浮按键自己处理拖动（否则拖动会滚页面）');
+
+// ---- 10.99993) 按键编辑器（工具条 / 参考线 / 设置面板）----
+// 参考"熊猫助手"那类按键映射工具：顶部工具条 + 选中后右侧设置面板 + 对齐参考线。
+ok(/id="ckToolbar"/.test(html), '编辑模式工具条存在');
+ok(/id="ckOptions"/.test(html), '选中按键的设置面板存在');
+ok(/id="ckCount"/.test(html) && /id="ckAdd"/.test(html) &&
+   /id="ckUndo"/.test(html) && /id="ckDel"/.test(html) && /id="ckGear"/.test(html),
+  '工具条有 数量/添加/撤销/删除/设置');
+ok(/data-shape="circle"/.test(html) && /data-shape="square"/.test(html), '设置面板有形状选项');
+ok(/data-scale="1"/.test(html) && /data-scale="1\.6"/.test(html), '设置面板有缩放选项');
+ok(/id="ckOptToggle"/.test(html), '设置面板有切换开关');
+ok(/\.ck-snap\s*\{/.test(cssNoComments), '有对齐参考线样式');
+ok(!/ck-none|ckNone/.test(cssNoComments) && !/ck-none|ckNone/.test(ckjs),
+  'NONE 占位已删除（用户要求）');
+ok(/mouse:left/.test(ckjs), '左键绑的是鼠标点击而不是方向键');
+ok(/mouse:right/.test(ckjs), '右键绑的是鼠标点击而不是方向键');
+ok(/let hidden = true/.test(ckjs), '悬浮按键默认隐藏（不误挡画面）');
+ok(/id="btnEnterEdit"/.test(html), '更多设置里有「进入编辑模式」入口');
+// 按键设置里的"固定可选按键"：用户不必手输键名，点一下就填进绑定
+ok(/id="ckPicker"/.test(html), '按键设置里有固定可选按键');
+ok(/const KEY_GROUPS/.test(ckjs), '可选按键分组已定义');
+for (const k of ['shift', 'backspace', 'enter', 'esc', 'space', 'delete', 'ctrl', 'alt', 'win']) {
+  ok(new RegExp("\\['" + k + "',").test(ckjs), '可选按键里有 ' + k);
+}
+ok(/function pickKey/.test(ckjs), '点可选按键会填进绑定');
+ok(/function highlightPicked/.test(ckjs), '已选按键会高亮（看得出当前绑定）');
+// 拖动只在编辑模式生效（普通模式拖动会误改位置）
+ok(/只有编辑模式才允许拖动/.test(ckjs), '拖动只在编辑模式生效');
+// 长按连发
+ok(/function startRepeat/.test(ckjs) && /function stopRepeat/.test(ckjs), '有长按连发实现');
+ok(/id="ckOptRepeat"/.test(html), '按键设置里有「长按连发」开关');
+ok(/\.ck-btn\.repeating/.test(cssNoComments), '连发中有视觉反馈');
+// 设置面板不能太宽（会挡住右侧画面），且必须能收起
+const panelW = (cssNoComments.match(/\.ck-options\s*\{[^}]*width:\s*(\d+)px/) || [])[1];
+ok(panelW && parseInt(panelW, 10) <= 230, '设置面板足够窄（' + panelW + 'px，不超过 230）');
+ok(/\.ck-options\.collapsed\s*\{[^}]*translateX\(100%\)/.test(cssNoComments), '设置面板可收起（移出屏幕）');
+ok(/id="ckOptReveal"/.test(html), '收起后有把手可以再展开');
+ok(/id="ckPanelToggle"/.test(html), '工具条有显示/隐藏设置面板的按钮');
+// 编辑模式下必须隐藏断开钮：它固定在右上角，会和设置面板的收起把手重叠
+ok(/body\.ck-editing #floatingExit\s*\{[^}]*display:\s*none/.test(cssNoComments),
+  '编辑模式下隐藏断开连接钮（避免与收起把手重叠）');
+// 功能介绍：用户"选中按键后不知道这些开关是干嘛的"，必须有就地说明
+ok(/class="ck-help"/.test(html), '设置面板里有功能介绍');
+ok(/ck-help[^>]*\sopen/.test(html), '主设置面板的说明默认展开（第一次用能直接看到）');
+for (const kw of ['轻点', '长按', '拖动', '组合键', '长按连发', '切换开关']) {
+  ok(html.indexOf(kw) >= 0, '功能介绍覆盖了「' + kw + '」');
+}
+ok(/\.ck-help-body/.test(cssNoComments), '功能介绍有排版样式');
+ok(/ck-editing/.test(ckjs), '编辑模式会设置 body.ck-editing 标记');
 // ---- 11) 界面里不能有 emoji / 渲染不可靠的字形 ----
 // 真实踩过：电源面板的「关机」按钮用了 ⏻ (U+23FB)，部分 Android WebView 不渲染它，
 // 用户看到的就是"关机图标消失"。

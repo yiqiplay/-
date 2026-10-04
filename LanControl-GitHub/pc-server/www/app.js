@@ -1797,7 +1797,7 @@ function vibrate(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch
 // 属于"打开某个面板"的按钮 —— openPanel 只负责这些按钮的高亮。
 // 其余按钮（全屏 / 虚拟鼠标 / 鼠标 / 滚动）是**模式**状态，由各自的逻辑维护，
 // 不能被 openPanel 顺手清掉。
-const PANEL_ACTS = ['keys', 'vkbd', 'input', 'files', 'power'];
+const PANEL_ACTS = ['keys', 'vkbd', 'input', 'files', 'power', 'custom'];
 
 function openPanel(id) {
   // 键盘打开时隐藏下方工具栏：面板是绝对定位，不这样处理会和工具栏叠在一起
@@ -1872,7 +1872,7 @@ function setupPanelGrips() {
 }
 
 function panelAct(id) {
-  return ({ keysPanel: 'keys', vkbdPanel: 'vkbd', inputPanel: 'input', filesPanel: 'files', powerPanel: 'power' })[id] || '';
+  return ({ keysPanel: 'keys', vkbdPanel: 'vkbd', inputPanel: 'input', filesPanel: 'files', powerPanel: 'power', customPanel: 'custom' })[id] || '';
 }
 
 function refreshFiles(path) {
@@ -2170,7 +2170,7 @@ function boot() {
         return;
       }
       if (act === 'more') { $('#drawer').classList.remove('hidden'); send({ type: 'sysinfo' }); return; }
-      const map = { keys: 'keysPanel', vkbd: 'vkbdPanel', input: 'inputPanel', files: 'filesPanel', power: 'powerPanel' };
+      const map = { keys: 'keysPanel', vkbd: 'vkbdPanel', input: 'inputPanel', files: 'filesPanel', power: 'powerPanel', custom: 'customPanel' };
       openPanel(map[act]);
       if (act === 'vkbd') { renderVkbd(); refreshKbTip(); }   // vkbd-open 由 openPanel 统一 toggle
       if (act === 'files') refreshFiles();

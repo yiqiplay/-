@@ -26,6 +26,10 @@ const MARKS = [
   ['refreshKbTip', '提示条刷新逻辑'],
   ['vkPaintState', '修饰键高亮刷新'],
   ['state.stageW', '拖动范围尺寸变量'],
+  ['customPanel', '触屏按键面板'],
+  ['btnOpenCustom', '更多设置里的触屏按键入口'],
+  ['LanControlCustomKeys', '触屏按键逻辑'],
+  ['syncKbButtons', '键盘按钮统一同步'],
 ];
 
 const dll = join(DIR, 'LanControlServer.dll');

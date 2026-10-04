@@ -79,6 +79,8 @@
 
     <div id="stage">
       <canvas id="screen"></canvas>
+      <!-- 触屏按键：悬浮在画面之上的可拖动按键（像手柄那样浮着，位置可拖） -->
+      <div id="customOverlay"></div>
       <div id="cursor"></div>
       <div id="vcursor" class="hidden"><span class="vc-ring"></span><span class="vc-dot"></span></div>
       <div id="gestureHint" class="hint hidden"></div>
@@ -190,6 +192,8 @@
           <button class="chip active" data-fps="15">标准 15</button>
           <button class="chip" data-fps="24">流畅 24</button>
         </div>
+        <h4>更多设置</h4>
+        <button class="wide-btn" id="btnOpenCustom">触屏按键（自定义按键）</button>
         <h4>操作</h4>
         <button class="wide-btn" id="btnFullscreen">切换全屏</button>
         <button class="wide-btn" id="btnClipboard">读取电脑剪贴板</button>
@@ -215,6 +219,193 @@
       </div>
       <div class="vkbd-mods" id="vkbdMods"></div>
       <div class="vkbd-body" id="vkbdBody"></div>
+    </div>
+
+    <!-- 触屏按键：编辑模式的工具条（形状/缩放等设置面板在下面）
+         图标一律用内联 SVG：emoji/符号字形在部分 Android WebView 上不渲染（踩过）。 -->
+    <div id="ckToolbar" class="ck-toolbar hidden">
+      <span class="ck-count" id="ckCount">0</span>
+      <span class="ck-sep"></span>
+      <button class="ck-tb" id="ckAdd" title="添加按键">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="ck-tb" id="ckUndo" title="撤销">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M9 7H5v-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M5 7a8 8 0 1 1-1.5 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="ck-tb" id="ckDel" title="删除选中">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="ck-tb" id="ckGear" title="设置">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="ck-tb" id="ckPanelToggle" title="显示/隐藏设置面板">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M14 5v14" fill="none" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+      <button class="ck-tb ck-done" id="ckToggle" title="退出编辑">完成</button>
+    </div>
+
+    <!-- 选中按键后的设置面板（右侧） -->
+    <div id="ckOptions" class="ck-options hidden">
+      <!-- 收起把手：面板收起后只剩这一条，不挡画面 -->
+      <button id="ckOptReveal" class="ck-opt-reveal" title="展开按键设置">
+        <span>设</span><span>置</span>
+      </button>
+      <div class="ck-opt-head">
+        <strong>按键设置</strong>
+        <button id="ckOptClose" class="icon-btn" title="收起（不挡画面）">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 功能介绍：默认收起，点标题展开。写在这里是因为用户是"选中按键后不知道这些开关干嘛" -->
+      <details class="ck-help">
+        <summary>这怎么用？（点开看说明）</summary>
+        <div class="ck-help-body">
+          <p><b>普通模式（工具条没出来时）</b></p>
+          <ul>
+            <li><b>轻点</b>按键 = 把按键发给电脑</li>
+            <li><b>长按 0.6 秒</b> = 进入编辑，并选中这个按键</li>
+            <li>普通模式下<b>拖动不会移动按键</b>（防误碰）</li>
+          </ul>
+
+          <p><b>编辑模式（工具条出现时）</b></p>
+          <ul>
+            <li><b>拖动</b>按键 = 换位置，靠近中线会<b>吸附</b>并显示十字参考线</li>
+            <li><b>点</b>按键 = 选中，右侧就是它的设置</li>
+            <li>工具条从左到右：<b>数量</b> · <b>＋</b> 添加 · <b>撤销</b> · <b>垃圾桶</b> 删除选中 ·
+              <b>设置</b> 打开完整设置 · <b>完成</b> 退出编辑</li>
+          </ul>
+
+          <p><b>各项设置</b></p>
+          <ul>
+            <li><b>名称</b>：按钮上显示的文字</li>
+            <li><b>绑定</b>：点下去要发送什么。可以点下面的按键选择，也能直接输入</li>
+            <li><b>形状 / 缩放</b>：按钮外观</li>
+            <li><b>长按连发</b>：开启后按住不放会连续发送（方向键、退格很有用）</li>
+            <li><b>切换开关</b>：开启后按键在"亮 / 灭"之间切换</li>
+          </ul>
+
+          <p><b>组合键怎么设</b></p>
+          <ul>
+            <li>连续点多个键即组合：点 <b>Ctrl</b> 再点 <b>C</b> → <code>ctrl c</code></li>
+            <li>同一个键再点一次即取消</li>
+            <li>鼠标点击用 <b>左键 / 右键 / 中键</b>，和键盘键互斥</li>
+          </ul>
+        </div>
+      </details>
+      <label class="ck-opt-label">名称</label>
+      <input class="text-input" id="ckOptLabel" maxlength="12" placeholder="按钮上显示的文字">
+      <label class="ck-opt-label">绑定（要发送的按键）</label>
+      <input class="text-input" id="ckOptKeys" placeholder="点下面的按键选择，或直接输入">
+      <!-- 固定可选按键：点一下就填进绑定。连续点多个即组成组合键（如 Ctrl 然后 C = ctrl c） -->
+      <div id="ckPicker" class="ck-picker"></div>
+      <div class="row">
+        <button class="wide-btn ghost" id="ckPickClear">清空绑定</button>
+      </div>
+      <label class="ck-opt-label">形状</label>
+      <div class="chip-row">
+        <button class="chip active" data-shape="circle">圆形</button>
+        <button class="chip" data-shape="rounded">圆角</button>
+        <button class="chip" data-shape="square">方形</button>
+      </div>
+      <label class="ck-opt-label">缩放</label>
+      <div class="chip-row">
+        <button class="chip" data-scale="0.7">70%</button>
+        <button class="chip" data-scale="0.85">85%</button>
+        <button class="chip active" data-scale="1">100%</button>
+        <button class="chip" data-scale="1.3">130%</button>
+        <button class="chip" data-scale="1.6">160%</button>
+      </div>
+      <label class="ck-opt-label">长按连发</label>
+      <button class="ck-switch" id="ckOptRepeat"><span></span></button>
+      <p class="tip-inline">开启后，<b>按住不放会连续发送</b>（间隔从 120ms 逐渐加快到 45ms），
+        适合方向键、退格这类需要连续触发的按键。</p>
+      <label class="ck-opt-label">切换开关</label>
+      <button class="ck-switch" id="ckOptToggle"><span></span></button>
+      <p class="tip-inline">开启后，这个按键会在"亮/灭"之间切换。</p>
+      <p class="tip-inline">
+        <b>位置只能在编辑模式里拖动</b>，平时拖动不会移动按键（避免误碰）。
+        普通模式下长按按键也会进入编辑。
+      </p>
+    </div>
+
+    <!-- 触屏按键设置：悬浮按键的增删改（入口在「控制菜单 → 更多设置」） -->
+    <div id="customPanel" class="panel hidden">
+      <div class="panel-grip" data-grip="customPanel"></div>
+      <div class="panel-head"><strong>触屏按键设置</strong>
+        <button class="panel-close icon-btn">✕</button></div>
+
+      <div class="custom-body">
+        <details class="ck-help" open>
+          <summary>功能说明（第一次用建议看一下）</summary>
+          <div class="ck-help-body">
+            <p><b>触屏按键是什么</b>：悬浮在电脑画面上的透明按键，点一下就代替你按键盘/鼠标。
+              适合玩游戏、看视频这类需要反复按同一个键的场景。</p>
+            <p><b>怎么用</b></p>
+            <ul>
+              <li>点「<b>显示</b>」把按键浮到画面上（默认隐藏，不挡画面）</li>
+              <li>屏幕上 <b>轻点</b>按键 = 发送；<b>长按 0.6 秒</b> = 进入编辑</li>
+              <li>点「<b>进入编辑模式</b>」可拖动按键换位置、改名称和绑定</li>
+            </ul>
+            <p><b>位置怎么存</b>：按画面比例保存，换手机、横竖屏都不会跑偏；重连后仍在。</p>
+            <p><b>找不到按键了</b>：在下面的列表里点「<b>编辑</b>」，或进入编辑模式后在画面中央找
+              （新增的按键放在画面中央附近）。</p>
+          </div>
+        </details>
+        <h4>悬浮按键</h4>
+        <div class="row">
+          <button class="chip active" id="btnCustomShow">显示</button>
+          <button class="chip" id="btnCustomHide">隐藏</button>
+        </div>
+        <button class="wide-btn" id="btnEnterEdit">进入编辑模式（拖动 / 改设置）</button>
+        <p class="tip-inline">
+          悬浮在画面上的按键：<b>轻点</b>发送按键、<b>拖动</b>换位置（位置自动记住）、
+          <b>长按</b>进入编辑。
+        </p>
+
+        <h4>不透明度</h4>
+        <div class="chip-row">
+          <button class="chip" data-op="0.25">很淡</button>
+          <button class="chip" data-op="0.40">淡</button>
+          <button class="chip active" data-op="0.55">标准</button>
+          <button class="chip" data-op="0.80">明显</button>
+        </div>
+
+        <h4>添加按键</h4>
+        <input class="text-input" id="customLabel" maxlength="12" placeholder="显示文字，如：ESC、SPACE、复制">
+        <input class="text-input" id="customKeys" placeholder="如：esc　或　space　或　ctrl c　或　mouse:left">
+        <div class="row">
+          <button class="wide-btn" id="btnCustomSave">添加 / 保存</button>
+          <button class="wide-btn ghost" id="btnCustomCancel">取消编辑</button>
+        </div>
+        <p class="tip-inline">
+          可用键名：<b>esc</b> <b>space</b> <b>tab</b> <b>enter</b> <b>backspace</b> <b>delete</b>
+          <b>ctrl</b> <b>alt</b> <b>shift</b> <b>win</b>、<b>a</b>-<b>z</b>、<b>0</b>-<b>9</b>、
+          <b>f1</b>-<b>f12</b>、<b>home</b> <b>end</b> <b>pageup</b> <b>pagedown</b>、
+          <b>left</b> <b>up</b> <b>right</b> <b>down</b>、<b>volume_up</b> <b>volume_down</b> <b>volume_mute</b>。
+          组合键用空格分隔，如 <b>ctrl c</b>。<br>
+          鼠标点击用 <b>mouse:left</b> / <b>mouse:right</b> / <b>mouse:middle</b>。
+        </p>
+
+        <h4>已有的按键</h4>
+        <div id="customList"></div>
+      </div>
     </div>
 
     <!-- 键盘条 -->
@@ -285,5 +476,7 @@
   </section>
 </div>
 <script src="/web/app.js"></script>
+<!-- 触屏按键（自定义按键）：独立文件，放在 app.js 之后以便使用其全局函数 -->
+<script src="/web/customkeys.js"></script>
 </body>
 </html>

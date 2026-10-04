@@ -52,6 +52,45 @@ const unknown = [...keyNames]
 log(unknown.length === 0,
   `键盘上所有非别名键名服务端都能处理${unknown.length ? '（无法处理的: ' + unknown.join(', ') + '）' : ''}`);
 
+// ---- 3.5) 触屏按键里的默认按键也必须服务端认识 ----
+// 用户自定义的按键他自己负责，但**我们预置的**必须是对的，
+// 否则用户第一次点「复制」就没反应，还找不到原因。
+try {
+  const ck = readFileSync(WWW + '/customkeys.js', 'utf8');
+  const seg = ck.slice(ck.indexOf('const DEFAULTS'), ck.indexOf('];', ck.indexOf('const DEFAULTS')));
+  const used = new Set();
+  for (const m of seg.matchAll(/keys:\s*'([^']+)'/g)) {
+    for (const k of m[1].split(/\s+/).filter(Boolean)) used.add(k.toLowerCase());
+  }
+  // mouse:left / mouse:right 之类是鼠标动作，不是服务端键名，跳过
+  const bad = [...used].filter((k) =>
+    !/^mouse:(left|right|middle)$/.test(k) && !supported.has(k) && !(k.length === 1 && /[a-z0-9]/.test(k)));
+  log(used.size > 0 && bad.length === 0,
+    `触屏按键的预置按键服务端都能处理（共 ${used.size} 个键名${bad.length ? '，不认识的: ' + bad.join(', ') : ''}）`);
+} catch (e) {
+  log(false, '读取 customkeys.js 失败: ' + e.message);
+}
+// ---- 3.7) 按键设置里的"固定可选按键"必须服务端都认识 ----
+// 这是最容易出问题的地方：用户点一下选择器就把键名发给服务端，
+// 如果键名写错（比如 shiftL 那种），服务端静默丢弃、用户完全看不出原因。
+try {
+  const ck = readFileSync(WWW + '/customkeys.js', 'utf8');
+  const seg = ck.slice(ck.indexOf('const KEY_GROUPS'), ck.indexOf('function renderPicker'));
+  const picked = new Set();
+  for (const m of seg.matchAll(/\[\s*'([a-z0-9_:]+)'\s*,/g)) picked.add(m[1].toLowerCase());
+  const isMouse = (k) => /^mouse:(left|right|middle)$/.test(k);
+  const bad = [...picked].filter((k) =>
+    !isMouse(k) && !supported.has(k) && !(k.length === 1 && /[a-z0-9]/.test(k)));
+  log(picked.size > 30, `可选按键共 ${picked.size} 个`);
+  log(bad.length === 0,
+    `可选按键服务端都能处理${bad.length ? '（不认识的: ' + bad.join(', ') + '）' : ''}`);
+  // 用户明确要求要有 Shift / 退格 这类功能键
+  for (const need of ['shift', 'backspace', 'enter', 'ctrl', 'alt']) {
+    log(picked.has(need), `可选按键里有 ${need}`);
+  }
+} catch (e) {
+  log(false, '读取 KEY_GROUPS 失败: ' + e.message);
+}
 // ---- 4) 别名键必须都登记在 VK_MOD_ALIAS 里 ----
 // 这就是 shiftL/shiftR 那个坑的针对性检查：
 // 一旦别名表漏了某个键，它会被当成普通键发给服务端 → 静默无效。
